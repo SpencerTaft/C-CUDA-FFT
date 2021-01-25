@@ -16,23 +16,25 @@ __global__ void addKernel(int *c, const int *a, const int *b)
 
 int main()
 {
-    //Open racingLumber file for reading
-    /////////>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
+    /*Open racingLumber file for reading*/
+
     std::fstream fs;
+    char inputChar = 'A';
+
     fs.open("saveData.txt", std::fstream::in);
 
-    char c = inbuf->sbumpc();
-    while (c != EOF)
+    bool DEBUG = fs.is_open();
+
+    
+    //char c = inbuf->sbumpc();
+    while (inputChar != EOF)
     {
-        outbuf->sputc(c);
-        c = inbuf->sbumpc();
+        fs >> inputChar;
     }
-    //fs << " more lorem ipsum";
 
     fs.close();
-    ///////////////<<<<<<<<<<<<<<<<<<<<<<<<<<
 
-
+    /*Existing sample CUDA code*/
     const int arraySize = 5;
     const int a[arraySize] = { 1, 2, 3, 4, 5 };
     const int b[arraySize] = { 10, 20, 30, 40, 50 };
