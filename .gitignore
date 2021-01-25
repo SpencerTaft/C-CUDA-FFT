@@ -1,0 +1,8 @@
+#Visual Studio cache files
+ipch/
+*.aps
+*.ncb
+*.opensdf
+*.sdf
+*.opendb
+*.cachefile
