@@ -5,6 +5,7 @@
 #include <stdio.h>
 
 #include <fstream>      // std::fstream
+#include <string>       // std::string
 
 cudaError_t addWithCuda(int *c, const int *a, const int *b, unsigned int size);
 
@@ -21,31 +22,35 @@ int main()
     std::fstream fs;
     char inputChar = 'A';
     int numElements = 0;
+    
 
     fs.open("saveData.txt", std::fstream::in);
 
     if (fs.is_open())
     {
         /*Find the number of elements in each data array TODO add error checking*/
+        
         while ((inputChar != EOF) && (inputChar != 's'))
         {
             fs >> inputChar;
         }
-        //fs >> inputChar; //skip over the tab
+        fs >> inputChar; //skip over the tab
 
-        /*fs is now pointing to the start of the number*/
+        /*Decode the number from incoming chars*/
 
-        while (inputChar != '\n')//look for end of line///////////////////////TODO fix end check
+        do
         {
             numElements *= 10; //shift up existing number one decimel place
-
-            fs >> inputChar; //get character
             numElements += static_cast<int>(inputChar - '0'); //convert to int and add
-        }
+            fs >> inputChar; //get character
+        }while((inputChar >= '0') && (inputChar <= '9'));
 
-        fs >> numElements;
+        /*Decode the first name of data*/
 
-        
+ //       do
+//        {
+//            fs >> inputChar; //get character
+//        } while (1);
 
     }
 
