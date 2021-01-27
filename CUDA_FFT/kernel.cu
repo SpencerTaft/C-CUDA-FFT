@@ -20,16 +20,33 @@ int main()
 
     std::fstream fs;
     char inputChar = 'A';
+    int numElements = 0;
 
     fs.open("saveData.txt", std::fstream::in);
 
-    bool DEBUG = fs.is_open();
-
-    
-    //char c = inbuf->sbumpc();
-    while (inputChar != EOF)
+    if (fs.is_open())
     {
-        fs >> inputChar;
+        /*Find the number of elements in each data array TODO add error checking*/
+        while ((inputChar != EOF) && (inputChar != 's'))
+        {
+            fs >> inputChar;
+        }
+        //fs >> inputChar; //skip over the tab
+
+        /*fs is now pointing to the start of the number*/
+
+        while (inputChar != '\n')//look for end of line///////////////////////TODO fix end check
+        {
+            numElements *= 10; //shift up existing number one decimel place
+
+            fs >> inputChar; //get character
+            numElements += static_cast<int>(inputChar - '0'); //convert to int and add
+        }
+
+        fs >> numElements;
+
+        
+
     }
 
     fs.close();
