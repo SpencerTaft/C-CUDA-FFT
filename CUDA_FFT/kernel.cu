@@ -22,6 +22,7 @@ int main()
     std::fstream fs;
     char inputChar = 'A';
     int numElements = 0;
+    std::string dataName = "";
     
 
     fs.open("saveData.txt", std::fstream::in);
@@ -34,7 +35,8 @@ int main()
         {
             fs >> inputChar;
         }
-        fs >> inputChar; //skip over the tab
+        fs >> inputChar; //skip over the 's'
+        fs >> inputChar; //skip over the delimiter
 
         /*Decode the number from incoming chars*/
 
@@ -47,10 +49,12 @@ int main()
 
         /*Decode the first name of data*/
 
- //       do
-//        {
-//            fs >> inputChar; //get character
-//        } while (1);
+        do
+        {
+            dataName += inputChar;
+
+            fs >> inputChar; //get character
+        } while (inputChar != '~');
 
     }
 
