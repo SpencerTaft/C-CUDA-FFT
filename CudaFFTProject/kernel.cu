@@ -3,7 +3,14 @@
 #include "device_launch_parameters.h"
 
 #include <stdio.h>
+#include <iostream>
+#include <string>
+#include <fstream>
+#include <vector>
 
+void readCSV();
+void generateFrameOffsets();
+void generateFilter();
 cudaError_t addWithCuda(int *c, const int *a, const int *b, unsigned int size);
 
 __global__ void addKernel(int *c, const int *a, const int *b)
@@ -12,12 +19,38 @@ __global__ void addKernel(int *c, const int *a, const int *b)
     c[i] = a[i] + b[i];
 }
 
+const char delimeter = ',';//delimeter between items in CSV file
+std::vector<double>inputArray;//array of input data from CSV file
+int inputArraySize = 0;
+std::vector<int>frameOffsets;//list of frame offsets used by workers
+
+
+//user set parameters
+const int k_fftInputLen = 100; //length of FFT input array
+const int k_fftFrameOffset = 10; //offset between start of FFT frames(eg x[n]=x[n-1]+k_fftFrameOffset where x[n] is the first value used as input to the fft frame)
+
 int main()
 {
     const int arraySize = 5;
     const int a[arraySize] = { 1, 2, 3, 4, 5 };
     const int b[arraySize] = { 10, 20, 30, 40, 50 };
     int c[arraySize] = { 0 };
+
+    //>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
+    //>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
+    //>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
+    std::cout << "Start of program\n";
+    readCSV();
+
+    //generate blackman-harris filter from 0 to k_fftInputLen-1
+    generateFilter();
+
+    //generate frameOffsets
+    generateFrameOffsets();
+
+    //<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<
+    //<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<
+    //<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<
 
     // Add vectors in parallel.
     cudaError_t cudaStatus = addWithCuda(c, a, b, arraySize);
@@ -37,8 +70,43 @@ int main()
         return 1;
     }
 
+    std::cout << "End of program\n";
+
     return 0;
 }
+
+void readCSV()
+{
+    std::string line;
+    std::string string;
+
+    std::ifstream myFile("data.CSV");
+
+    if (!myFile.is_open()) throw std::runtime_error("Couldn't open file");
+
+    while (getline(myFile, string, delimeter)) {
+        //std::cout << string << std::endl;
+        inputArray.push_back(std::stod(string));
+        inputArraySize++;
+    }
+}
+
+void generateFrameOffsets()
+{
+    for (int i = 0; i < (inputArraySize - k_fftInputLen); i += k_fftFrameOffset)
+    {
+        frameOffsets.push_back(i);
+    }
+}
+
+void generateFilter()
+{
+    for (int i = 0; i < inputArraySize; i++)
+    {
+
+    }
+}
+
 
 // Helper function for using CUDA to add vectors in parallel.
 cudaError_t addWithCuda(int *c, const int *a, const int *b, unsigned int size)
