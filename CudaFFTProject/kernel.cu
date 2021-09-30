@@ -3,6 +3,7 @@
 #include "device_launch_parameters.h"
 
 #include <stdio.h>
+#include <math.h>
 #include <iostream>
 #include <string>
 #include <fstream>
@@ -11,6 +12,7 @@
 void readCSV();
 void generateFrameOffsets();
 void generateFilter();
+//std::vector<double> windowData();
 cudaError_t addWithCuda(int *c, const int *a, const int *b, unsigned int size);
 
 __global__ void addKernel(int *c, const int *a, const int *b)
@@ -23,6 +25,7 @@ const char delimeter = ',';//delimeter between items in CSV file
 std::vector<double>inputArray;//array of input data from CSV file
 int inputArraySize = 0;
 std::vector<int>frameOffsets;//list of frame offsets used by workers
+std::vector<double>filter;//filter used to window the FFT frames
 
 
 //user set parameters
@@ -39,6 +42,8 @@ int main()
     //>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
     //>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
     //>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
+    //Todo need to review garbage collection and do prototype until simple FFT is complete
+
     std::cout << "Start of program\n";
     readCSV();
 
@@ -47,6 +52,10 @@ int main()
 
     //generate frameOffsets
     generateFrameOffsets();
+
+    //todo fxns below will be run in parallel
+
+    //windowData();
 
     //<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<
     //<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<
@@ -101,11 +110,46 @@ void generateFrameOffsets()
 
 void generateFilter()
 {
-    for (int i = 0; i < inputArraySize; i++)
-    {
+    //w[n] = a0 - a1*cos(x) + a2*cos(2x) - a3cos(3x), x = (2n*pi)/N, 0 < n < N
 
+    const double a0 = 0.35875;
+    const double a1 = 0.48829;
+    const double a2 = 0.14128;
+    const double a3 = 0.01168;
+
+    double x;
+    double term1, term2, term3;
+    double w_n;
+
+    for (int n = 0; n < k_fftInputLen; n++)
+    {
+        //calculate x
+        x = 2 * n * (3.14159);
+        x /= k_fftInputLen;
+
+        term1 = a1 * cos(x);
+        term2 = a2 * cos(2 * x);
+        term3 = a3 * cos(3 * x);
+
+        w_n = a0 - term1 + term2 - term3;
+
+        filter.push_back(w_n);
     }
 }
+
+//std::vector<double> windowData(int frameOffset)
+//{
+//    std::vector<double>windowedVector;
+//    double windowedData;
+//
+//    for (int n = 0; n < k_fftInputLen; n++)
+//    {
+//        windowedData = filter[n] * inputArray[n + frameOffset];
+//        windowedVector.push_back(windowedData);
+//    }
+//
+//    return windowedVector;
+//}
 
 
 // Helper function for using CUDA to add vectors in parallel.
