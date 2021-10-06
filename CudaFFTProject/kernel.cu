@@ -12,7 +12,7 @@
 void readCSV();
 void generateFrameOffsets();
 void generateFilter();
-//std::vector<double> windowData();
+std::vector<double> windowData(int frameOffset);
 cudaError_t addWithCuda(int *c, const int *a, const int *b, unsigned int size);
 
 __global__ void addKernel(int *c, const int *a, const int *b)
@@ -55,7 +55,7 @@ int main()
 
     //todo fxns below will be run in parallel
 
-    //windowData();
+    std::vector<double> window = windowData(0);
 
     //<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<
     //<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<
@@ -137,20 +137,21 @@ void generateFilter()
     }
 }
 
-//std::vector<double> windowData(int frameOffset)
-//{
-//    std::vector<double>windowedVector;
-//    double windowedData;
-//
-//    for (int n = 0; n < k_fftInputLen; n++)
-//    {
-//        windowedData = filter[n] * inputArray[n + frameOffset];
-//        windowedVector.push_back(windowedData);
-//    }
-//
-//    return windowedVector;
-//}
+/*  Apply blackman - harris filter to input data frame.
+ *  Return the result as a vector.                      */
+std::vector<double> windowData(int frameOffset)
+{
+    std::vector<double>windowedVector;
+    double windowedData;
 
+    for (int n = 0; n < k_fftInputLen; n++)
+    {
+        windowedData = filter[n] * inputArray[n + frameOffset];
+        windowedVector.push_back(windowedData);
+    }
+
+    return windowedVector;
+}
 
 // Helper function for using CUDA to add vectors in parallel.
 cudaError_t addWithCuda(int *c, const int *a, const int *b, unsigned int size)

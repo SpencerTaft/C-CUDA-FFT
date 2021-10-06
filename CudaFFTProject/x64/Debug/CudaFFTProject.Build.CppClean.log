@@ -1,0 +1,15 @@
+x64\debug\kernel.cu.obj
+c:\dev\c-cuda-fft\x64\debug\cudafftproject.lib
+c:\dev\c-cuda-fft\x64\debug\cudafftproject.exp
+c:\dev\c-cuda-fft\x64\debug\cudafftproject.exe
+c:\dev\c-cuda-fft\cudafftproject\x64\debug\cudafftproject.ilk
+c:\dev\c-cuda-fft\x64\debug\cudafftproject.pdb
+c:\dev\c-cuda-fft\cudafftproject\x64\debug\kernel.cu.cache
+c:\dev\c-cuda-fft\cudafftproject\x64\debug\kernel.cu.obj
+c:\dev\c-cuda-fft\cudafftproject\x64\debug\vc142.pdb
+c:\dev\c-cuda-fft\cudafftproject\x64\debug\cudafftproject.tlog\cudacompile.read.1u.tlog
+c:\dev\c-cuda-fft\cudafftproject\x64\debug\cudafftproject.tlog\cudacompile.write.1u.tlog
+c:\dev\c-cuda-fft\cudafftproject\x64\debug\cudafftproject.tlog\cudafftproject.write.1u.tlog
+c:\dev\c-cuda-fft\cudafftproject\x64\debug\cudafftproject.tlog\link.command.1.tlog
+c:\dev\c-cuda-fft\cudafftproject\x64\debug\cudafftproject.tlog\link.read.1.tlog
+c:\dev\c-cuda-fft\cudafftproject\x64\debug\cudafftproject.tlog\link.write.1.tlog
