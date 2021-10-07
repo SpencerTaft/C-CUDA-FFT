@@ -10,9 +10,9 @@
 #include <vector>
 
 void readCSV();
-void generateFrameOffsets();
-void generateFilter();
-std::vector<double> windowData(int frameOffset);
+std::vector<int> generateFrameOffsets();
+std::vector<double> generateFilter();
+std::vector<double> windowData(int frameOffset, std::vector<double> filter);
 cudaError_t addWithCuda(int *c, const int *a, const int *b, unsigned int size);
 
 __global__ void addKernel(int *c, const int *a, const int *b)
@@ -21,11 +21,11 @@ __global__ void addKernel(int *c, const int *a, const int *b)
     c[i] = a[i] + b[i];
 }
 
-const char delimeter = ',';//delimeter between items in CSV file
+
 std::vector<double>inputArray;//array of input data from CSV file
 int inputArraySize = 0;
-std::vector<int>frameOffsets;//list of frame offsets used by workers
-std::vector<double>filter;//filter used to window the FFT frames
+
+
 
 
 //user set parameters
@@ -42,20 +42,21 @@ int main()
     //>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
     //>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
     //>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
-    //Todo need to review garbage collection and do prototype until simple FFT is complete
 
     std::cout << "Start of program\n";
+
+    //Read CSV file and put elements in global inputArray vector
     readCSV();
 
-    //generate blackman-harris filter from 0 to k_fftInputLen-1
-    generateFilter();
+    //generate blackman-harris filter from 0 to k_fftInputLen-1 to window the input data
+    std::vector<double> filter = generateFilter();
 
     //generate frameOffsets
-    generateFrameOffsets();
+    std::vector<int> frameOffsets = generateFrameOffsets();//list of frame offsets used by workers
 
     //todo fxns below will be run in parallel
 
-    std::vector<double> window = windowData(0);
+    std::vector<double> windowedData = windowData(0, filter);
 
     //<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<
     //<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<
@@ -86,6 +87,7 @@ int main()
 
 void readCSV()
 {
+    const char delimeter = ',';//delimeter between items in CSV file
     std::string line;
     std::string string;
 
@@ -100,23 +102,27 @@ void readCSV()
     }
 }
 
-void generateFrameOffsets()
+std::vector<int> generateFrameOffsets()
 {
+    std::vector<int> offsets;
+
     for (int i = 0; i < (inputArraySize - k_fftInputLen); i += k_fftFrameOffset)
     {
-        frameOffsets.push_back(i);
+        offsets.push_back(i);
     }
+
+    return offsets;
 }
 
-void generateFilter()
+std::vector<double> generateFilter()
 {
     //w[n] = a0 - a1*cos(x) + a2*cos(2x) - a3cos(3x), x = (2n*pi)/N, 0 < n < N
-
     const double a0 = 0.35875;
     const double a1 = 0.48829;
     const double a2 = 0.14128;
     const double a3 = 0.01168;
 
+    std::vector<double> outputFilter;
     double x;
     double term1, term2, term3;
     double w_n;
@@ -133,13 +139,15 @@ void generateFilter()
 
         w_n = a0 - term1 + term2 - term3;
 
-        filter.push_back(w_n);
+        outputFilter.push_back(w_n);
     }
+
+    return outputFilter;
 }
 
 /*  Apply blackman - harris filter to input data frame.
  *  Return the result as a vector.                      */
-std::vector<double> windowData(int frameOffset)
+std::vector<double> windowData(int frameOffset, std::vector<double> filter)
 {
     std::vector<double>windowedVector;
     double windowedData;
