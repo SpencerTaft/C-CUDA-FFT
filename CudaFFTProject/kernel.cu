@@ -266,10 +266,14 @@ int main()
 
     std::vector<double> windowedData = windowData(0, filter);
 
-    ///TODO test FFT code
-    const Complex test[] = { 1.0, 1.0, 1.0, 1.0, 0.0, 0.0, 0.0, 0.0 };
-    CArray data(test, 8);
+    Complex test[k_fftInputLen];
+    for (int i = 0; i < k_fftInputLen; i++)
+    {
+        test[i] = windowedData[i];
+    }
 
+    CArray data(test, k_fftInputLen);
+    
     // forward fft
     fft(data);
 
