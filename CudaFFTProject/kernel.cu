@@ -8,7 +8,6 @@
 #include <string>
 #include <fstream>
 #include <vector>
-
 #include <complex>
 #include <iostream>
 #include <valarray>
@@ -26,11 +25,16 @@ std::vector<int> generateFrameOffsets();
 std::vector<double> generateFilter();
 std::vector<double> windowData(int frameOffset, std::vector<double> filter);
 void fft(CArray& x);
-cudaError_t addWithCuda(int *c, const int *a, const int *b, unsigned int size);
+cudaError_t addWithCuda();
 
 //Global variables
 std::vector<double>inputArray;//array of input data from CSV file
 int inputArraySize = 0;
+
+//Global FFT variables
+const double PI = 3.141592653589793238460;
+typedef std::complex<double> Complex;
+typedef std::valarray<Complex> CArray;
 
 //user set parameters
 const int k_fftInputLen = 100; //length of FFT input array
@@ -102,6 +106,120 @@ std::vector<double> generateFilter()
  /**********************************************************
   * Functions run in parallel
   **********************************************************/
+  /*  Apply blackman - harris filter to input data frame.
+   *  Return the result as a vector.                      */
+std::vector<double> windowData(int frameOffset, std::vector<double> filter)
+{
+    std::vector<double>windowedVector;
+    double windowedData;
+
+    for (int n = 0; n < k_fftInputLen; n++)
+    {
+        windowedData = filter[n] * inputArray[n + frameOffset];
+        windowedVector.push_back(windowedData);
+    }
+
+    return windowedVector;
+}
+
+
+
+//>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
+void runInParallel()
+{
+
+}
+
+// Cooley–Tukey FFT (in-place)
+void fft(CArray& x)
+{
+    const size_t N = x.size();
+    if (N <= 1) return;
+
+    // divide
+    CArray even = x[std::slice(0, N / 2, 2)];
+    CArray  odd = x[std::slice(1, N / 2, 2)];
+
+    // conquer
+    fft(even);
+    fft(odd);
+
+    // combine
+    for (size_t k = 0; k < N / 2; ++k)
+    {
+        Complex t = std::polar(1.0, -2 * PI * k / N) * odd[k];
+        x[k] = even[k] + t;         //todo this is overwriting the input data, need to preserve input copy
+        x[k + N / 2] = even[k] - t; //todo this is overwriting the input data, need to preserve input copy
+    }
+}
+
+ /**********************************************************
+  * Main
+  **********************************************************/
+int main()
+{
+
+
+    std::cout << "Start of program\n";
+
+    //Read CSV file and put elements in global inputArray vector
+    readCSV();
+
+    //generate blackman-harris filter from 0 to k_fftInputLen-1 to window the input data
+    std::vector<double> filter = generateFilter();
+
+    //generate frameOffsets
+    std::vector<int> frameOffsets = generateFrameOffsets();//list of frame offsets used by workers
+
+    //todo fxns below will be run in parallel
+
+    std::vector<double> windowedData = windowData(0, filter);
+
+    Complex test[k_fftInputLen];
+    for (int i = 0; i < k_fftInputLen; i++)
+    {
+        test[i] = windowedData[i];
+    }
+
+    CArray data(test, k_fftInputLen);
+    
+    // forward fft
+    fft(data);
+
+    std::cout << "fft" << std::endl;
+    for (int i = 0; i < 8; ++i)
+    {
+        std::cout << data[i] << std::endl;
+    }
+
+    //<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<
+    //<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<
+    //<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<
+
+    // Add vectors in parallel.
+    cudaError_t cudaStatus = addWithCuda();
+    if (cudaStatus != cudaSuccess) {
+        fprintf(stderr, "addWithCuda failed!");
+        return 1;
+    }
+
+//    printf("{1,2,3,4,5} + {10,20,30,40,50} = {%d,%d,%d,%d,%d}\n",
+//        c[0], c[1], c[2], c[3], c[4]);
+
+    // cudaDeviceReset must be called before exiting in order for profiling and
+    // tracing tools such as Nsight and Visual Profiler to show complete traces.
+    cudaStatus = cudaDeviceReset();
+    if (cudaStatus != cudaSuccess) {
+        fprintf(stderr, "cudaDeviceReset failed!");
+        return 1;
+    }
+
+    std::cout << "End of program\n";
+
+    return 0;
+}
+
+//>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
 __global__ void addKernel(int* c, const int* a, const int* b)
 {
     int i = threadIdx.x;
@@ -109,8 +227,24 @@ __global__ void addKernel(int* c, const int* a, const int* b)
 }
 
 // Helper function for using CUDA to add vectors in parallel.
-cudaError_t addWithCuda(int* c, const int* a, const int* b, unsigned int size)
+cudaError_t addWithCuda()
 {
+    const int arraySize = 5;
+    unsigned int size = arraySize;//todo var is redundant
+
+
+    int a_local[arraySize] = { 1, 2, 3, 4, 5 };
+    int* a = &a_local[0];
+
+    int b_local[arraySize] = { 10, 20, 30, 40, 50 };
+    int* b = &b_local[0];
+
+    int c_local[arraySize] = { 0 };
+    int* c = &c_local[0];
+
+    //c, a, b, arraySize
+
+
     int* dev_a = 0;
     int* dev_b = 0;
     int* dev_c = 0;
@@ -187,145 +321,4 @@ Error:
 
     return cudaStatus;
 }
-
-//>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
-void runInParallel()
-{
-
-}
-
-//>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
-//>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
-//>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
-//>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
-//FFT Code
-#include <complex>
-#include <iostream>
-#include <valarray>
-
-const double PI = 3.141592653589793238460;
-
-typedef std::complex<double> Complex;
-typedef std::valarray<Complex> CArray;
-
-// Cooley–Tukey FFT (in-place)
-void fft(CArray& x)
-{
-    const size_t N = x.size();
-    if (N <= 1) return;
-
-    // divide
-    CArray even = x[std::slice(0, N / 2, 2)];
-    CArray  odd = x[std::slice(1, N / 2, 2)];
-
-    // conquer
-    fft(even);
-    fft(odd);
-
-    // combine
-    for (size_t k = 0; k < N / 2; ++k)
-    {
-        Complex t = std::polar(1.0, -2 * PI * k / N) * odd[k];
-        x[k] = even[k] + t;
-        x[k + N / 2] = even[k] - t;
-    }
-}
-
-//<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<
-//<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<
-//<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<
-//<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<
-//<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<
-
- /**********************************************************
-  * Main
-  **********************************************************/
-int main()
-{
-    const int arraySize = 5;
-    const int a[arraySize] = { 1, 2, 3, 4, 5 };
-    const int b[arraySize] = { 10, 20, 30, 40, 50 };
-    int c[arraySize] = { 0 };
-
-    //>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
-    //>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
-    //>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
-
-    std::cout << "Start of program\n";
-
-    //Read CSV file and put elements in global inputArray vector
-    readCSV();
-
-    //generate blackman-harris filter from 0 to k_fftInputLen-1 to window the input data
-    std::vector<double> filter = generateFilter();
-
-    //generate frameOffsets
-    std::vector<int> frameOffsets = generateFrameOffsets();//list of frame offsets used by workers
-
-    //todo fxns below will be run in parallel
-
-    std::vector<double> windowedData = windowData(0, filter);
-
-    Complex test[k_fftInputLen];
-    for (int i = 0; i < k_fftInputLen; i++)
-    {
-        test[i] = windowedData[i];
-    }
-
-    CArray data(test, k_fftInputLen);
-    
-    // forward fft
-    fft(data);
-
-    std::cout << "fft" << std::endl;
-    for (int i = 0; i < 8; ++i)
-    {
-        std::cout << data[i] << std::endl;
-    }
-
-    //<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<
-    //<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<
-    //<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<
-
-    // Add vectors in parallel.
-    cudaError_t cudaStatus = addWithCuda(c, a, b, arraySize);
-    if (cudaStatus != cudaSuccess) {
-        fprintf(stderr, "addWithCuda failed!");
-        return 1;
-    }
-
-    printf("{1,2,3,4,5} + {10,20,30,40,50} = {%d,%d,%d,%d,%d}\n",
-        c[0], c[1], c[2], c[3], c[4]);
-
-    // cudaDeviceReset must be called before exiting in order for profiling and
-    // tracing tools such as Nsight and Visual Profiler to show complete traces.
-    cudaStatus = cudaDeviceReset();
-    if (cudaStatus != cudaSuccess) {
-        fprintf(stderr, "cudaDeviceReset failed!");
-        return 1;
-    }
-
-    std::cout << "End of program\n";
-
-    return 0;
-}
-
-
-
-
-
-/*  Apply blackman - harris filter to input data frame.
- *  Return the result as a vector.                      */
-std::vector<double> windowData(int frameOffset, std::vector<double> filter)
-{
-    std::vector<double>windowedVector;
-    double windowedData;
-
-    for (int n = 0; n < k_fftInputLen; n++)
-    {
-        windowedData = filter[n] * inputArray[n + frameOffset];
-        windowedVector.push_back(windowedData);
-    }
-
-    return windowedVector;
-}
+//<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<
