@@ -148,6 +148,33 @@ void fft(CArray& x)
     }
 }
 
+//>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
+//todo this needs to receive pointer to return memory
+__global__ void FFTkernel(double* filterVec, int* frameOffsetsVec, double* inputArrayVec)
+{
+    //Todo skip window for now, add once I get the raw FFT working on GPU
+    //std::vector<double> windowedData = windowData(0, filter, inputArray);
+
+    //windowData would return a vector with length k_fftInputLen and applies the frame offset.  for testing, run FFT on the first frame
+
+    int i = threadIdx.x;
+    //c[i] = a[i] + b[i];
+
+    //    std::vector<double> windowedData = windowData(0, filter, inputArray);
+
+    //    Complex test[k_fftInputLen];
+    //    for (int i = 0; i < k_fftInputLen; i++)
+    //    {
+    //        test[i] = windowedData[i];
+    //    }
+
+    //    CArray data(test, k_fftInputLen);
+
+    // forward fft
+    //fft(data);
+
+}
+
  /**********************************************************
   * Main
   **********************************************************/
@@ -163,27 +190,6 @@ int main()
 
     //generate frameOffsets
     std::vector<int> frameOffsets = generateFrameOffsets();//list of frame offsets used by workers
-
-    //todo fxns below will be run in parallel
-
-    std::vector<double> windowedData = windowData(0, filter, inputArray);
-
-    Complex test[k_fftInputLen];
-    for (int i = 0; i < k_fftInputLen; i++)
-    {
-        test[i] = windowedData[i];
-    }
-
-    CArray data(test, k_fftInputLen);
-    
-    // forward fft
-    fft(data);
-
-    std::cout << "fft" << std::endl;
-    for (int i = 0; i < 8; ++i)
-    {
-        std::cout << data[i] << std::endl;
-    }
 
     // Run FFT in parallel.
     cudaError_t cudaStatus = FFTWithCuda(filter, frameOffsets, inputArray);
@@ -205,18 +211,15 @@ int main()
     return 0;
 }
 
-//((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((
-//((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((
-//((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((
-//((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((
 cudaError_t FFTWithCuda(std::vector<double>& filter, std::vector<int>& frameOffsets, std::vector<double>& inputArray)
 {
     cudaError_t cudaStatus;
-    int* dev_filter = 0;
+    int threadCount;
+    double* dev_filter = 0;
     int* dev_frameOffsets = 0;
-    int* dev_inputArray = 0;
+    double* dev_inputArray = 0;
 
-    // Choose which GPU to run on, change this on a multi-GPU system.
+    // Choose which GPU to run on, change this on a multi-GPU system
     cudaStatus = cudaSetDevice(0);
     if (cudaStatus != cudaSuccess) {
         fprintf(stderr, "cudaSetDevice failed!  Do you have a CUDA-capable GPU installed?");
@@ -243,8 +246,7 @@ cudaError_t FFTWithCuda(std::vector<double>& filter, std::vector<int>& frameOffs
         goto Error;
     }
 
-    //Copy input vectors from host memory to GPU buffers.
-
+    //Copy input vectors from host memory to GPU buffers
     
     cudaStatus = cudaMemcpy(dev_filter, &filter[0], sizeof(filter), cudaMemcpyHostToDevice);
     if (cudaStatus != cudaSuccess) {
@@ -264,92 +266,10 @@ cudaError_t FFTWithCuda(std::vector<double>& filter, std::vector<int>& frameOffs
         goto Error;
     }
 
-Error:
-    cudaFree(dev_filter);
-    cudaFree(dev_frameOffsets);
-    cudaFree(dev_inputArray);
+    threadCount = sizeof(frameOffsets)/sizeof(int);
 
-    return cudaStatus;
-}
-//))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))
-//))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))
-//))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))
-//))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))
-
-
-
-//>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
-__global__ void addKernel(int* c, const int* a, const int* b)
-{
-    int i = threadIdx.x;
-    c[i] = a[i] + b[i];
-}
-
-// Helper function for using CUDA to add vectors in parallel.
-cudaError_t addWithCuda()
-{
-    const int arraySize = 5;
-    unsigned int size = arraySize;//todo var is redundant
-
-
-    int a_local[arraySize] = { 1, 2, 3, 4, 5 };
-    int* cpu_a = &a_local[0];
-
-    int b_local[arraySize] = { 10, 20, 30, 40, 50 };
-    int* cpu_b = &b_local[0];
-
-    int c_local[arraySize] = { 0 };
-    int* cpu_c = &c_local[0];
-
-    //c, a, b, arraySize
-
-
-    int* dev_a = 0;
-    int* dev_b = 0;
-    int* dev_c = 0;
-    cudaError_t cudaStatus;
-
-    // Choose which GPU to run on, change this on a multi-GPU system.
-    cudaStatus = cudaSetDevice(0);
-    if (cudaStatus != cudaSuccess) {
-        fprintf(stderr, "cudaSetDevice failed!  Do you have a CUDA-capable GPU installed?");
-        goto Error;
-    }
-
-    // Allocate GPU buffers for three vectors (two input, one output)    .
-    cudaStatus = cudaMalloc((void**)&dev_c, size * sizeof(int));
-    if (cudaStatus != cudaSuccess) {
-        fprintf(stderr, "cudaMalloc failed!");
-        goto Error;
-    }
-
-    cudaStatus = cudaMalloc((void**)&dev_a, size * sizeof(int));
-    if (cudaStatus != cudaSuccess) {
-        fprintf(stderr, "cudaMalloc failed!");
-        goto Error;
-    }
-
-    cudaStatus = cudaMalloc((void**)&dev_b, size * sizeof(int));
-    if (cudaStatus != cudaSuccess) {
-        fprintf(stderr, "cudaMalloc failed!");
-        goto Error;
-    }
-
-    // Copy input vectors from host memory to GPU buffers.
-    cudaStatus = cudaMemcpy(dev_a, cpu_a, size * sizeof(int), cudaMemcpyHostToDevice);
-    if (cudaStatus != cudaSuccess) {
-        fprintf(stderr, "cudaMemcpy failed!");
-        goto Error;
-    }
-
-    cudaStatus = cudaMemcpy(dev_b, cpu_b, size * sizeof(int), cudaMemcpyHostToDevice);
-    if (cudaStatus != cudaSuccess) {
-        fprintf(stderr, "cudaMemcpy failed!");
-        goto Error;
-    }
-
-    // Launch a kernel on the GPU with one thread for each element.
-    addKernel << <1, size >> > (dev_c, dev_a, dev_b);
+    // Launch a kernel on the GPU with one thread per frameOffset
+    FFTkernel << <1, threadCount >> > (dev_filter, dev_frameOffsets, dev_inputArray);
 
     // Check for any errors launching the kernel
     cudaStatus = cudaGetLastError();
@@ -365,19 +285,25 @@ cudaError_t addWithCuda()
         fprintf(stderr, "cudaDeviceSynchronize returned error code %d after launching addKernel!\n", cudaStatus);
         goto Error;
     }
+    //>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
 
     // Copy output vector from GPU buffer to host memory.
-    cudaStatus = cudaMemcpy(cpu_c, dev_c, size * sizeof(int), cudaMemcpyDeviceToHost);
-    if (cudaStatus != cudaSuccess) {
-        fprintf(stderr, "cudaMemcpy failed!");
-        goto Error;
-    }
+//    cudaStatus = cudaMemcpy(cpu_c, dev_c, size * sizeof(int), cudaMemcpyDeviceToHost);
+//    if (cudaStatus != cudaSuccess) {
+//        fprintf(stderr, "cudaMemcpy failed!");
+//        goto Error;
+//    }
+    //<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<
 
 Error:
-    cudaFree(dev_c);
-    cudaFree(dev_a);
-    cudaFree(dev_b);
+    //Free input data
+    cudaFree(dev_filter);
+    cudaFree(dev_frameOffsets);
+    cudaFree(dev_inputArray);
+
+    //Free output data
+
+    //cudaFree(dev_c);
 
     return cudaStatus;
 }
-//<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<
