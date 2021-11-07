@@ -20,16 +20,15 @@ typedef std::complex<double> Complex;
 typedef std::valarray<Complex> CArray;
 
 //Function declarations
-void readCSV();
+std::vector<double> readCSV();
 std::vector<int> generateFrameOffsets();
 std::vector<double> generateFilter();
 std::vector<double> windowData(int frameOffset, std::vector<double> filter);
 void fft(CArray& x);
 cudaError_t addWithCuda();
-cudaError_t FFTWithCuda(std::vector<double>& filter, std::vector<int>& frameOffsets);
+cudaError_t FFTWithCuda(std::vector<double>& filter, std::vector<int>& frameOffsets, std::vector<double>& inputArray);
 
 //Global variables
-std::vector<double>inputArray;//array of input data from CSV file
 int inputArraySize = 0;
 
 //Global FFT variables
@@ -44,8 +43,10 @@ const int k_fftFrameOffset = 10; //offset between start of FFT frames(eg x[n]=x[
 /**********************************************************
  * Functions run on single thread
  **********************************************************/
-void readCSV()
+std::vector<double> readCSV()
 {
+    std::vector<double> returnVector;
+
     const char delimeter = ',';//delimeter between items in CSV file
     std::string line;
     std::string string;
@@ -55,9 +56,11 @@ void readCSV()
     if (!myFile.is_open()) throw std::runtime_error("Couldn't open file");
 
     while (getline(myFile, string, delimeter)) {
-        inputArray.push_back(std::stod(string));
+        returnVector.push_back(std::stod(string));
         inputArraySize++;
     }
+
+    return returnVector;
 }
 
 std::vector<int> generateFrameOffsets()
@@ -108,7 +111,7 @@ std::vector<double> generateFilter()
   **********************************************************/
   /*  Apply blackman - harris filter to input data frame.
    *  Return the result as a vector.                      */
-std::vector<double> windowData(int frameOffset, std::vector<double> filter)
+std::vector<double> windowData(int frameOffset, std::vector<double> filter, std::vector<double> inputArray)
 {
     std::vector<double>windowedVector;
     double windowedData;
@@ -120,14 +123,6 @@ std::vector<double> windowData(int frameOffset, std::vector<double> filter)
     }
 
     return windowedVector;
-}
-
-
-
-//>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
-void runInParallel()
-{
-
 }
 
 // Cooley–Tukey FFT (in-place)
@@ -160,8 +155,8 @@ int main()
 {
     std::cout << "Start of program\n";
 
-    //Read CSV file and put elements in global inputArray vector
-    readCSV();
+    //Read CSV file and put elements in inputArray vector
+    std::vector<double> inputArray = readCSV();
 
     //generate blackman-harris filter from 0 to k_fftInputLen-1 to window the input data
     std::vector<double> filter = generateFilter();
@@ -171,7 +166,7 @@ int main()
 
     //todo fxns below will be run in parallel
 
-    std::vector<double> windowedData = windowData(0, filter);
+    std::vector<double> windowedData = windowData(0, filter, inputArray);
 
     Complex test[k_fftInputLen];
     for (int i = 0; i < k_fftInputLen; i++)
@@ -191,21 +186,11 @@ int main()
     }
 
     // Run FFT in parallel.
-    cudaError_t cudaStatus = FFTWithCuda(filter, frameOffsets);
+    cudaError_t cudaStatus = FFTWithCuda(filter, frameOffsets, inputArray);
     if (cudaStatus != cudaSuccess) {
         fprintf(stderr, "FFTWithCuda failed!");
         return 1;
     }
-
-    // Add vectors in parallel.
-    //cudaError_t cudaStatus = addWithCuda();
-    //if (cudaStatus != cudaSuccess) {
-    //    fprintf(stderr, "addWithCuda failed!");
-    //    return 1;
-    //}
-
-//    printf("{1,2,3,4,5} + {10,20,30,40,50} = {%d,%d,%d,%d,%d}\n",
-//        c[0], c[1], c[2], c[3], c[4]);
 
     // cudaDeviceReset must be called before exiting in order for profiling and
     // tracing tools such as Nsight and Visual Profiler to show complete traces.
@@ -224,11 +209,12 @@ int main()
 //((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((
 //((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((
 //((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((
-cudaError_t FFTWithCuda(std::vector<double>& filter, std::vector<int>& frameOffsets)
+cudaError_t FFTWithCuda(std::vector<double>& filter, std::vector<int>& frameOffsets, std::vector<double>& inputArray)
 {
     cudaError_t cudaStatus;
     int* dev_filter = 0;
     int* dev_frameOffsets = 0;
+    int* dev_inputArray = 0;
 
     // Choose which GPU to run on, change this on a multi-GPU system.
     cudaStatus = cudaSetDevice(0);
@@ -251,27 +237,37 @@ cudaError_t FFTWithCuda(std::vector<double>& filter, std::vector<int>& frameOffs
         goto Error;
     }
 
+    cudaStatus = cudaMalloc((void**)&dev_inputArray, sizeof(inputArray));
+    if (cudaStatus != cudaSuccess) {
+        fprintf(stderr, "cudaMalloc failed!");
+        goto Error;
+    }
+
     //Copy input vectors from host memory to GPU buffers.
 
     
-    cudaStatus = cudaMemcpy(dev_filter, &filter[0], sizeof(filter), cudaMemcpyHostToDevice);//Copy filter to GPU
+    cudaStatus = cudaMemcpy(dev_filter, &filter[0], sizeof(filter), cudaMemcpyHostToDevice);
     if (cudaStatus != cudaSuccess) {
         fprintf(stderr, "cudaMemcpy failed!");
         goto Error;
     }
 
-    cudaStatus = cudaMemcpy(dev_frameOffsets, &frameOffsets[0], sizeof(frameOffsets), cudaMemcpyHostToDevice);//Copy filter to GPU
+    cudaStatus = cudaMemcpy(dev_frameOffsets, &frameOffsets[0], sizeof(frameOffsets), cudaMemcpyHostToDevice);
     if (cudaStatus != cudaSuccess) {
         fprintf(stderr, "cudaMemcpy failed!");
         goto Error;
     }
 
+    cudaStatus = cudaMemcpy(dev_inputArray, &inputArray[0], sizeof(inputArray), cudaMemcpyHostToDevice);
+    if (cudaStatus != cudaSuccess) {
+        fprintf(stderr, "cudaMemcpy failed!");
+        goto Error;
+    }
 
 Error:
     cudaFree(dev_filter);
     cudaFree(dev_frameOffsets);
-//    cudaFree(dev_a);
-//    cudaFree(dev_b);
+    cudaFree(dev_inputArray);
 
     return cudaStatus;
 }
