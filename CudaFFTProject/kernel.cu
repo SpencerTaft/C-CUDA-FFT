@@ -26,6 +26,7 @@ std::vector<double> generateFilter();
 std::vector<double> windowData(int frameOffset, std::vector<double> filter);
 void fft(CArray& x);
 cudaError_t addWithCuda();
+cudaError_t FFTWithCuda(std::vector<double>& filter, std::vector<int>& frameOffsets);
 
 //Global variables
 std::vector<double>inputArray;//array of input data from CSV file
@@ -54,7 +55,6 @@ void readCSV()
     if (!myFile.is_open()) throw std::runtime_error("Couldn't open file");
 
     while (getline(myFile, string, delimeter)) {
-        //std::cout << string << std::endl;
         inputArray.push_back(std::stod(string));
         inputArraySize++;
     }
@@ -158,8 +158,6 @@ void fft(CArray& x)
   **********************************************************/
 int main()
 {
-
-
     std::cout << "Start of program\n";
 
     //Read CSV file and put elements in global inputArray vector
@@ -192,16 +190,19 @@ int main()
         std::cout << data[i] << std::endl;
     }
 
-    //<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<
-    //<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<
-    //<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<
-
-    // Add vectors in parallel.
-    cudaError_t cudaStatus = addWithCuda();
+    // Run FFT in parallel.
+    cudaError_t cudaStatus = FFTWithCuda(filter, frameOffsets);
     if (cudaStatus != cudaSuccess) {
-        fprintf(stderr, "addWithCuda failed!");
+        fprintf(stderr, "FFTWithCuda failed!");
         return 1;
     }
+
+    // Add vectors in parallel.
+    //cudaError_t cudaStatus = addWithCuda();
+    //if (cudaStatus != cudaSuccess) {
+    //    fprintf(stderr, "addWithCuda failed!");
+    //    return 1;
+    //}
 
 //    printf("{1,2,3,4,5} + {10,20,30,40,50} = {%d,%d,%d,%d,%d}\n",
 //        c[0], c[1], c[2], c[3], c[4]);
@@ -219,6 +220,68 @@ int main()
     return 0;
 }
 
+//((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((
+//((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((
+//((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((
+//((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((
+cudaError_t FFTWithCuda(std::vector<double>& filter, std::vector<int>& frameOffsets)
+{
+    cudaError_t cudaStatus;
+    int* dev_filter = 0;
+    int* dev_frameOffsets = 0;
+
+    // Choose which GPU to run on, change this on a multi-GPU system.
+    cudaStatus = cudaSetDevice(0);
+    if (cudaStatus != cudaSuccess) {
+        fprintf(stderr, "cudaSetDevice failed!  Do you have a CUDA-capable GPU installed?");
+        goto Error;
+    }
+
+    //Allocate space on GPU for the filter, frameOffsets, and inputArray.  Only one of each is needed
+
+    cudaStatus = cudaMalloc((void**)&dev_filter, sizeof(filter));
+    if (cudaStatus != cudaSuccess) {
+        fprintf(stderr, "cudaMalloc failed!");
+        goto Error;
+    }
+
+    cudaStatus = cudaMalloc((void**)&dev_frameOffsets, sizeof(frameOffsets));
+    if (cudaStatus != cudaSuccess) {
+        fprintf(stderr, "cudaMalloc failed!");
+        goto Error;
+    }
+
+    //Copy input vectors from host memory to GPU buffers.
+
+    
+    cudaStatus = cudaMemcpy(dev_filter, &filter[0], sizeof(filter), cudaMemcpyHostToDevice);//Copy filter to GPU
+    if (cudaStatus != cudaSuccess) {
+        fprintf(stderr, "cudaMemcpy failed!");
+        goto Error;
+    }
+
+    cudaStatus = cudaMemcpy(dev_frameOffsets, &frameOffsets[0], sizeof(frameOffsets), cudaMemcpyHostToDevice);//Copy filter to GPU
+    if (cudaStatus != cudaSuccess) {
+        fprintf(stderr, "cudaMemcpy failed!");
+        goto Error;
+    }
+
+
+Error:
+    cudaFree(dev_filter);
+    cudaFree(dev_frameOffsets);
+//    cudaFree(dev_a);
+//    cudaFree(dev_b);
+
+    return cudaStatus;
+}
+//))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))
+//))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))
+//))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))
+//))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))
+
+
+
 //>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
 __global__ void addKernel(int* c, const int* a, const int* b)
 {
@@ -234,13 +297,13 @@ cudaError_t addWithCuda()
 
 
     int a_local[arraySize] = { 1, 2, 3, 4, 5 };
-    int* a = &a_local[0];
+    int* cpu_a = &a_local[0];
 
     int b_local[arraySize] = { 10, 20, 30, 40, 50 };
-    int* b = &b_local[0];
+    int* cpu_b = &b_local[0];
 
     int c_local[arraySize] = { 0 };
-    int* c = &c_local[0];
+    int* cpu_c = &c_local[0];
 
     //c, a, b, arraySize
 
@@ -277,13 +340,13 @@ cudaError_t addWithCuda()
     }
 
     // Copy input vectors from host memory to GPU buffers.
-    cudaStatus = cudaMemcpy(dev_a, a, size * sizeof(int), cudaMemcpyHostToDevice);
+    cudaStatus = cudaMemcpy(dev_a, cpu_a, size * sizeof(int), cudaMemcpyHostToDevice);
     if (cudaStatus != cudaSuccess) {
         fprintf(stderr, "cudaMemcpy failed!");
         goto Error;
     }
 
-    cudaStatus = cudaMemcpy(dev_b, b, size * sizeof(int), cudaMemcpyHostToDevice);
+    cudaStatus = cudaMemcpy(dev_b, cpu_b, size * sizeof(int), cudaMemcpyHostToDevice);
     if (cudaStatus != cudaSuccess) {
         fprintf(stderr, "cudaMemcpy failed!");
         goto Error;
@@ -308,7 +371,7 @@ cudaError_t addWithCuda()
     }
 
     // Copy output vector from GPU buffer to host memory.
-    cudaStatus = cudaMemcpy(c, dev_c, size * sizeof(int), cudaMemcpyDeviceToHost);
+    cudaStatus = cudaMemcpy(cpu_c, dev_c, size * sizeof(int), cudaMemcpyDeviceToHost);
     if (cudaStatus != cudaSuccess) {
         fprintf(stderr, "cudaMemcpy failed!");
         goto Error;
