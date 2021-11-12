@@ -109,21 +109,6 @@ std::vector<double> generateFilter()
  /**********************************************************
   * Functions run in parallel
   **********************************************************/
-  /*  Apply blackman - harris filter to input data frame.
-   *  Return the result as a vector.                      */
-std::vector<double> windowData(int frameOffset, std::vector<double> filter, std::vector<double> inputArray)
-{
-    std::vector<double>windowedVector;
-    double windowedData;
-
-    for (int n = 0; n < k_fftInputLen; n++)
-    {
-        windowedData = filter[n] * inputArray[n + frameOffset];
-        windowedVector.push_back(windowedData);
-    }
-
-    return windowedVector;
-}
 
 // Cooley–Tukey FFT (in-place)
 void fft(CArray& x)
@@ -148,10 +133,28 @@ void fft(CArray& x)
     }
 }
 
-//apply
-__device__ void kernelWindowData(int frameOffset, int* filterVec, double* inputArrayVec)
+/*  Apply blackman - harris filter to input data frame.
+ *  Return the result as a vector.                      */
+std::vector<double> windowData(int frameOffset, std::vector<double> filter, std::vector<double> inputArray)
 {
+    std::vector<double>windowedVector;
+    double windowedData;
 
+    for (int n = 0; n < k_fftInputLen; n++)
+    {
+        windowedData = filter[n] * inputArray[n + frameOffset];
+        windowedVector.push_back(windowedData);
+    }
+
+    return windowedVector;
+}
+
+__device__ void kernelWindowData(int frameOffset, double* filterVec, double* inputArrayVec, double* windowedDataI)
+{
+    for (int n = 0; n < k_fftInputLen; n++)
+    {
+        windowedDataI[n] = filterVec[n] * inputArrayVec[n + frameOffset];
+    }
 }
 
 __device__ void FFTkernelRecursive(int i)
@@ -160,7 +163,7 @@ __device__ void FFTkernelRecursive(int i)
 }
 
 //todo this needs to receive pointer to return memory
-__global__ void FFTkernel(double* filterVec, int* frameOffsetsVec, double* inputArrayVec, double* dev_windowedData)
+__global__ void FFTkernel(double* filterVec, int* frameOffsetsVec, double* inputArrayVec, double** windowedData)
 {
     //Todo skip window for now, add once I get the raw FFT working on GPU
     //std::vector<double> windowedData = windowData(0, filter, inputArray);
@@ -170,7 +173,9 @@ __global__ void FFTkernel(double* filterVec, int* frameOffsetsVec, double* input
     int i = threadIdx.x;
 
     //>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
-    FFTkernelRecursive(i);
+    //kernelWindowData(i, filterVec, inputArrayVec, windowedData[i]);
+    
+    //FFTkernelRecursive(i);
     //<<<<<<<<<<<<<<<<<<<<<
 
     //c[i] = a[i] + b[i];
