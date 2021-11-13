@@ -26,7 +26,7 @@ std::vector<double> generateFilter();
 std::vector<double> windowData(int frameOffset, std::vector<double> filter);
 void fft(CArray& x);
 //cudaError_t addWithCuda();
-cudaError_t FFTWithCuda(std::vector<double>& filter, std::vector<int>& frameOffsets, std::vector<double>& inputArray);
+cudaError_t FFTWithCuda(std::vector<double>& filter, const std::vector<int>& frameOffsets, std::vector<double>& inputArray);
 
 //Global variables
 int inputArraySize = 0;
@@ -163,7 +163,7 @@ __device__ void FFTkernelRecursive(int i)
 }
 
 //todo this needs to receive pointer to return memory
-__global__ void FFTkernel(double* filterVec, int* frameOffsetsVec, double* inputArrayVec, double** windowedData)
+__global__ void FFTkernel(double* filterVec, int* frameOffsetsVec, double* inputArrayVec, std::vector<double*>& windowedData)
 {
     //Todo skip window for now, add once I get the raw FFT working on GPU
     //std::vector<double> windowedData = windowData(0, filter, inputArray);
@@ -172,10 +172,15 @@ __global__ void FFTkernel(double* filterVec, int* frameOffsetsVec, double* input
 
     int i = threadIdx.x;
 
+    # if __CUDA_ARCH__>=200
+    printf("%d \n", i);
+    #endif  
+
+
     //>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
     //kernelWindowData(i, filterVec, inputArrayVec, windowedData[i]);
     
-    //FFTkernelRecursive(i);
+    FFTkernelRecursive(i);
     //<<<<<<<<<<<<<<<<<<<<<
 
     //c[i] = a[i] + b[i];
@@ -209,7 +214,7 @@ int main()
     std::vector<double> filter = generateFilter();
 
     //generate frameOffsets
-    std::vector<int> frameOffsets = generateFrameOffsets();//list of frame offsets used by workers
+    const std::vector<int> frameOffsets = generateFrameOffsets();//list of frame offsets used by workers
 
     // Run FFT in parallel.
     cudaError_t cudaStatus = FFTWithCuda(filter, frameOffsets, inputArray);
@@ -231,16 +236,16 @@ int main()
     return 0;
 }
 
-cudaError_t FFTWithCuda(std::vector<double>& filter, std::vector<int>& frameOffsets, std::vector<double>& inputArray)
+cudaError_t FFTWithCuda(std::vector<double>& filter, const std::vector<int>& frameOffsets, std::vector<double>& inputArray)
 {
     cudaError_t cudaStatus;
     double* dev_filter = 0;
     int* dev_frameOffsets = 0;
     double* dev_inputArray = 0;
 
-    const int threadCount = sizeof(frameOffsets) / sizeof(int);
+    const int threadCount = frameOffsets.size();
 
-    double* dev_windowedData[threadCount];
+    std::vector<double*> dev_windowedData;
     double* dev_windowedDataI = nullptr;
 
     // Choose which GPU to run on, change this on a multi-GPU system
@@ -280,7 +285,7 @@ cudaError_t FFTWithCuda(std::vector<double>& filter, std::vector<int>& frameOffs
             goto Error;
         }
 
-        dev_windowedData[i] = dev_windowedDataI;
+        dev_windowedData.push_back(dev_windowedDataI);
     }
 
     //Copy input vectors from host memory to GPU buffers
