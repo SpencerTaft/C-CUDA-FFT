@@ -163,7 +163,7 @@ __device__ void FFTkernelRecursive(int i)
 }
 
 //todo this needs to receive pointer to return memory
-__global__ void FFTkernel(double* filterVec, int* frameOffsetsVec, double* inputArrayVec, std::vector<double*>& windowedData)
+__global__ void FFTkernel(double* filterVec, int* frameOffsetsVec, double* inputArrayVec, double** windowedData)
 {
     //Todo skip window for now, add once I get the raw FFT working on GPU
     //std::vector<double> windowedData = windowData(0, filter, inputArray);
@@ -173,7 +173,7 @@ __global__ void FFTkernel(double* filterVec, int* frameOffsetsVec, double* input
     int i = threadIdx.x;
 
     # if __CUDA_ARCH__>=200
-    //printf("%d \n", windowedData[0]);
+    printf("%d \n", windowedData);
     #endif  
 
 
@@ -243,9 +243,10 @@ cudaError_t FFTWithCuda(std::vector<double>& filter, const std::vector<int>& fra
     int* dev_frameOffsets = 0;
     double* dev_inputArray = 0;
 
-    const int threadCount = frameOffsets.size();
+    const int const threadCount = frameOffsets.size();
     std::vector<double> emptyWindowedData;
-    std::vector<double*> dev_windowedData;
+
+    double** dev_windowedData = new double*[threadCount]; //needs to be dynamic because number of threads is not known at compile time
     double* dev_windowedDataI = 0;
 
     // Choose which GPU to run on, change this on a multi-GPU system
@@ -291,17 +292,13 @@ cudaError_t FFTWithCuda(std::vector<double>& filter, const std::vector<int>& fra
         }    
 
         cudaStatus = cudaMemcpy(dev_windowedDataI, &emptyWindowedData[0], sizeof(emptyWindowedData), cudaMemcpyHostToDevice);
-        //cudaStatus = cudaMemcpy(dev_windowedDataI, &filter[0], sizeof(filter), cudaMemcpyHostToDevice);
         if (cudaStatus != cudaSuccess) {
             fprintf(stderr, "cudaMemcpy failed!");
             goto Error;
         }
 
-        dev_windowedData.push_back(dev_windowedDataI);
+        dev_windowedData[i] = dev_windowedDataI;
     }
-    //>>>>>>>>>>>>>>>>>>>>>>>>>>
-    double* test = dev_windowedData[0];
-    //<<<<<<<<<<<<<<<<<
 
     //Copy input vectors from host memory to GPU buffers
     
