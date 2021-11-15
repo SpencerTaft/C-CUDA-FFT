@@ -1,1 +1,36 @@
-﻿  CudaFFTProject.vcxproj -> C:\Dev\C-CUDA-FFT\x64\Debug\CudaFFTProject.exe
+﻿  Compiling CUDA source file kernel.cu...
+  
+  C:\Dev\C-CUDA-FFT\CudaFFTProject>"C:\Program Files\NVIDIA GPU Computing Toolkit\CUDA\v11.4\bin\nvcc.exe" -gencode=arch=compute_52,code=\"sm_52,compute_52\" --use-local-env -ccbin "C:\Program Files (x86)\Microsoft Visual Studio\2019\Community\VC\Tools\MSVC\14.29.30133\bin\HostX86\x64" -x cu   -I"C:\Program Files\NVIDIA GPU Computing Toolkit\CUDA\v11.4\include" -I"C:\Program Files\NVIDIA GPU Computing Toolkit\CUDA\v11.4\include"  -G   --keep-dir x64\Debug  -maxrregcount=0  --machine 64 --compile -cudart static  -g  -DWIN32 -DWIN64 -D_DEBUG -D_CONSOLE -D_MBCS -Xcompiler "/EHsc /W3 /nologo /Od /Fdx64\Debug\vc142.pdb /FS /Zi /RTC1 /MDd " -o x64\Debug\kernel.cu.obj "C:\Dev\C-CUDA-FFT\CudaFFTProject\kernel.cu" 
+c:\dev\c-cuda-fft\cudafftproject\kernel.cu(176): warning : argument is incompatible with corresponding format string conversion
+  
+c:\dev\c-cuda-fft\cudafftproject\kernel.cu(255): warning : transfer of control bypasses initialization of:
+              variable "test"
+  (303): here
+  
+c:\dev\c-cuda-fft\cudafftproject\kernel.cu(263): warning : transfer of control bypasses initialization of:
+              variable "test"
+  (303): here
+  
+c:\dev\c-cuda-fft\cudafftproject\kernel.cu(269): warning : transfer of control bypasses initialization of:
+              variable "test"
+  (303): here
+  
+c:\dev\c-cuda-fft\cudafftproject\kernel.cu(275): warning : transfer of control bypasses initialization of:
+              variable "test"
+  (303): here
+  
+c:\dev\c-cuda-fft\cudafftproject\kernel.cu(290): warning : transfer of control bypasses initialization of:
+              variable "test"
+  (303): here
+  
+c:\dev\c-cuda-fft\cudafftproject\kernel.cu(297): warning : transfer of control bypasses initialization of:
+              variable "test"
+  (303): here
+  
+c:\dev\c-cuda-fft\cudafftproject\kernel.cu(176): error : calling a __host__ function("std::vector<double *, ::std::allocator<double *> > ::operator [](unsigned long long)") from a __global__ function("FFTkernel") is not allowed
+  
+c:\dev\c-cuda-fft\cudafftproject\kernel.cu(176): error : identifier "std::vector<double *, ::std::allocator<double *> > ::operator []" is undefined in device code
+  
+  2 errors detected in the compilation of "c:/dev/c-cuda-fft/cudafftproject/kernel.cu".
+  kernel.cu
+C:\Program Files (x86)\Microsoft Visual Studio\2019\Community\MSBuild\Microsoft\VC\v160\BuildCustomizations\CUDA 11.4.targets(785,9): error MSB3721: The command ""C:\Program Files\NVIDIA GPU Computing Toolkit\CUDA\v11.4\bin\nvcc.exe" -gencode=arch=compute_52,code=\"sm_52,compute_52\" --use-local-env -ccbin "C:\Program Files (x86)\Microsoft Visual Studio\2019\Community\VC\Tools\MSVC\14.29.30133\bin\HostX86\x64" -x cu   -I"C:\Program Files\NVIDIA GPU Computing Toolkit\CUDA\v11.4\include" -I"C:\Program Files\NVIDIA GPU Computing Toolkit\CUDA\v11.4\include"  -G   --keep-dir x64\Debug  -maxrregcount=0  --machine 64 --compile -cudart static  -g  -DWIN32 -DWIN64 -D_DEBUG -D_CONSOLE -D_MBCS -Xcompiler "/EHsc /W3 /nologo /Od /Fdx64\Debug\vc142.pdb /FS /Zi /RTC1 /MDd " -o x64\Debug\kernel.cu.obj "C:\Dev\C-CUDA-FFT\CudaFFTProject\kernel.cu"" exited with code 1.

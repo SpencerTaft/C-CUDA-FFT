@@ -173,7 +173,7 @@ __global__ void FFTkernel(double* filterVec, int* frameOffsetsVec, double* input
     int i = threadIdx.x;
 
     # if __CUDA_ARCH__>=200
-    printf("%d \n", i);
+    //printf("%d \n", windowedData[0]);
     #endif  
 
 
@@ -244,9 +244,9 @@ cudaError_t FFTWithCuda(std::vector<double>& filter, const std::vector<int>& fra
     double* dev_inputArray = 0;
 
     const int threadCount = frameOffsets.size();
-
+    std::vector<double> emptyWindowedData;
     std::vector<double*> dev_windowedData;
-    double* dev_windowedDataI = nullptr;
+    double* dev_windowedDataI = 0;
 
     // Choose which GPU to run on, change this on a multi-GPU system
     cudaStatus = cudaSetDevice(0);
@@ -276,6 +276,11 @@ cudaError_t FFTWithCuda(std::vector<double>& filter, const std::vector<int>& fra
     }
 
     //Allocate room on GPU for windowed data (windowing is run in parallel), data initialized on GPU so no memcpy for this data
+    
+    for (int i = 0; i < k_fftInputLen; i++)
+    {
+        emptyWindowedData.push_back(0.0);
+    }
 
     for (int i = 0; i < threadCount; i++)
     {
@@ -283,10 +288,20 @@ cudaError_t FFTWithCuda(std::vector<double>& filter, const std::vector<int>& fra
         if (cudaStatus != cudaSuccess) {
             fprintf(stderr, "cudaMalloc failed!");
             goto Error;
+        }    
+
+        cudaStatus = cudaMemcpy(dev_windowedDataI, &emptyWindowedData[0], sizeof(emptyWindowedData), cudaMemcpyHostToDevice);
+        //cudaStatus = cudaMemcpy(dev_windowedDataI, &filter[0], sizeof(filter), cudaMemcpyHostToDevice);
+        if (cudaStatus != cudaSuccess) {
+            fprintf(stderr, "cudaMemcpy failed!");
+            goto Error;
         }
 
         dev_windowedData.push_back(dev_windowedDataI);
     }
+    //>>>>>>>>>>>>>>>>>>>>>>>>>>
+    double* test = dev_windowedData[0];
+    //<<<<<<<<<<<<<<<<<
 
     //Copy input vectors from host memory to GPU buffers
     
