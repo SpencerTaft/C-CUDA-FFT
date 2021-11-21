@@ -154,12 +154,18 @@ __device__ void kernelWindowData(int frameOffset, double* filterVec, double* inp
     for (int n = 0; n < k_fftInputLen; n++)
     {
         windowedDataI[n] = filterVec[n] * inputArrayVec[n + frameOffset];
+
+        # if __CUDA_ARCH__>=200
+        //printf("%f \n", windowedDataI[n]);
+        printf("%f \n", filterVec[n]);
+        #endif
     }
 }
 
 __device__ void FFTkernelRecursive(int i)
 {
     //do nothing
+    //fft(data);
 }
 
 //todo this needs to receive pointer to return memory
@@ -176,31 +182,11 @@ __global__ void FFTkernel(double* filterVec, int* frameOffsetsVec, double* input
     double* windowedDataI = windowedData + windowedDataOffset;
 
     # if __CUDA_ARCH__>=200
-    printf("%d \n", windowedDataI);
+    //printf("%f \n", windowedDataI);
     #endif  
 
-
-    //>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
     kernelWindowData(i, filterVec, inputArrayVec, windowedDataI);
-    
     FFTkernelRecursive(i);
-    //<<<<<<<<<<<<<<<<<<<<<
-
-    //c[i] = a[i] + b[i];
-
-    //    std::vector<double> windowedData = windowData(0, filter, inputArray);
-
-    //    Complex test[k_fftInputLen];
-    //    for (int i = 0; i < k_fftInputLen; i++)
-    //    {
-    //        test[i] = windowedData[i];
-    //    }
-
-    //    CArray data(test, k_fftInputLen);
-
-    // forward fft
-    //fft(data);
-
 }
 
  /**********************************************************
@@ -246,7 +232,8 @@ cudaError_t FFTWithCuda(std::vector<double>& filter, const std::vector<int>& fra
     int* dev_frameOffsets = 0;
     double* dev_inputArray = 0;
 
-    const int const threadCount = frameOffsets.size();
+    //todo debug, only run one thread until that case works
+    const int const threadCount = 1;///////////////////////////frameOffsets.size();
     std::vector<double> emptyWindowedData;
 
     double* dev_windowedData = 0;
@@ -335,15 +322,14 @@ cudaError_t FFTWithCuda(std::vector<double>& filter, const std::vector<int>& fra
         fprintf(stderr, "cudaDeviceSynchronize returned error code %d after launching addKernel!\n", cudaStatus);
         goto Error;
     }
-    //>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
 
     // Copy output vector from GPU buffer to host memory.
-//    cudaStatus = cudaMemcpy(cpu_c, dev_c, size * sizeof(int), cudaMemcpyDeviceToHost);
-//    if (cudaStatus != cudaSuccess) {
-//        fprintf(stderr, "cudaMemcpy failed!");
-//        goto Error;
-//    }
-    //<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<
+    //emptyWindowedData now contains the windowedData
+    cudaStatus = cudaMemcpy(&emptyWindowedData[0], dev_windowedData, sizeof(emptyWindowedData), cudaMemcpyDeviceToHost);
+    if (cudaStatus != cudaSuccess) {
+        fprintf(stderr, "cudaMemcpy failed!");
+        goto Error;
+    }
 
 Error:
     //Free input data
@@ -352,8 +338,7 @@ Error:
     cudaFree(dev_inputArray);
 
     //Free output data
-
-    //cudaFree(dev_c);
+    cudaFree(dev_windowedData);
 
     return cudaStatus;
 }
