@@ -20,13 +20,13 @@ typedef std::complex<double> Complex;
 typedef std::valarray<Complex> CArray;
 
 //Function declarations
-std::vector<double> readCSV();
+double* readCSV();
 std::vector<int> generateFrameOffsets();
 std::vector<double> generateFilter();
 std::vector<double> windowData(int frameOffset, std::vector<double> filter);
 void fft(CArray& x);
 //cudaError_t addWithCuda();
-cudaError_t FFTWithCuda(std::vector<double>& filter, const std::vector<int>& frameOffsets, std::vector<double>& inputArray);
+cudaError_t FFTWithCuda(std::vector<double>& filter, const std::vector<int>& frameOffsets, double* inputArray);
 
 //Global variables
 int inputArraySize = 0;
@@ -35,17 +35,18 @@ int inputArraySize = 0;
 const double PI = 3.141592653589793238460;
 typedef std::complex<double> Complex;
 typedef std::valarray<Complex> CArray;
+int GlobalinputArraySize;
 
 //user set parameters
-const int k_fftInputLen = 100; //length of FFT input array
+const int k_fftInputLen = 100; //length of FFT input array(data points per FFT frame)
 const int k_fftFrameOffset = 10; //offset between start of FFT frames(eg x[n]=x[n-1]+k_fftFrameOffset where x[n] is the first value used as input to the fft frame)
 
 /**********************************************************
  * Functions run on single thread
  **********************************************************/
-std::vector<double> readCSV()
+double* readCSV()
 {
-    std::vector<double> returnVector;
+    std::vector<double> csvVector;
 
     const char delimeter = ',';//delimeter between items in CSV file
     std::string line;
@@ -56,11 +57,21 @@ std::vector<double> readCSV()
     if (!myFile.is_open()) throw std::runtime_error("Couldn't open file");
 
     while (getline(myFile, string, delimeter)) {
-        returnVector.push_back(std::stod(string));
+        csvVector.push_back(std::stod(string));
         inputArraySize++;
     }
 
-    return returnVector;
+    //Memory allocated here will need to be freed at end of program
+    //CUDA requires contiguous memory that
+    double* inputArray = new double[inputArraySize];
+    for (int i = 0; i < inputArraySize; i++)
+    {
+        inputArray[i] = csvVector[i];
+    }
+
+    GlobalinputArraySize = inputArraySize;
+
+    return inputArray;
 }
 
 std::vector<int> generateFrameOffsets()
@@ -157,7 +168,8 @@ __device__ void kernelWindowData(int frameOffset, double* filterVec, double* inp
 
         # if __CUDA_ARCH__>=200
         //printf("%f \n", windowedDataI[n]);
-        printf("%f \n", filterVec[n]);
+        //printf("%f \n", filterVec[n]);
+        printf("%f \n", inputArrayVec[n]);
         #endif
     }
 }
@@ -197,7 +209,7 @@ int main()
     std::cout << "Start of program\n";
 
     //Read CSV file and put elements in inputArray vector
-    std::vector<double> inputArray = readCSV();
+    double* inputArray = readCSV();
 
     //generate blackman-harris filter from 0 to k_fftInputLen-1 to window the input data
     std::vector<double> filter = generateFilter();
@@ -225,7 +237,7 @@ int main()
     return 0;
 }
 
-cudaError_t FFTWithCuda(std::vector<double>& filter, const std::vector<int>& frameOffsets, std::vector<double>& inputArray)
+cudaError_t FFTWithCuda(std::vector<double>& filter, const std::vector<int>& frameOffsets, double* inputArray)
 {
     cudaError_t cudaStatus;
     double* dev_filter = 0;
@@ -259,7 +271,7 @@ cudaError_t FFTWithCuda(std::vector<double>& filter, const std::vector<int>& fra
         goto Error;
     }
 
-    cudaStatus = cudaMalloc((void**)&dev_inputArray, sizeof(inputArray));
+    cudaStatus = cudaMalloc((void**)&dev_inputArray, GlobalinputArraySize);//todo replace global
     if (cudaStatus != cudaSuccess) {
         fprintf(stderr, "cudaMalloc failed!");
         goto Error;
@@ -298,7 +310,7 @@ cudaError_t FFTWithCuda(std::vector<double>& filter, const std::vector<int>& fra
         goto Error;
     }
 
-    cudaStatus = cudaMemcpy(dev_inputArray, &inputArray[0], sizeof(inputArray), cudaMemcpyHostToDevice);
+    cudaStatus = cudaMemcpy(dev_inputArray, &inputArray[0], GlobalinputArraySize, cudaMemcpyHostToDevice);//todo replace global
     if (cudaStatus != cudaSuccess) {
         fprintf(stderr, "cudaMemcpy failed!");
         goto Error;
