@@ -19,14 +19,37 @@
 typedef std::complex<double> Complex;
 typedef std::valarray<Complex> CArray;
 
+template <class T> class ContiguousArray
+{
+public:
+    unsigned int numElements;
+    T* ptr;
+
+    ContiguousArray(T* inputPtr, unsigned int inputNumElements)
+    {
+        ptr = inputPtr;
+        numElements = inputNumElements;
+    }
+
+    ContiguousArray()
+    {
+        ptr = nullptr;
+        numElements = 0;
+    }
+
+    unsigned int getSize()
+    {
+        return numElements * sizeof(T);
+    }
+};
+
 //Function declarations
-double* readCSV();
+ContiguousArray<double> readCSV();
 std::vector<int> generateFrameOffsets();
-std::vector<double> generateFilter();
+ContiguousArray<double> generateFilter();
 std::vector<double> windowData(int frameOffset, std::vector<double> filter);
 void fft(CArray& x);
-//cudaError_t addWithCuda();
-cudaError_t FFTWithCuda(std::vector<double>& filter, const std::vector<int>& frameOffsets, double* inputArray);
+cudaError_t FFTWithCuda(ContiguousArray<double> filter, const std::vector<int>& frameOffsets, ContiguousArray<double> inputArray);
 
 //Global variables
 int inputArraySize = 0;
@@ -35,7 +58,6 @@ int inputArraySize = 0;
 const double PI = 3.141592653589793238460;
 typedef std::complex<double> Complex;
 typedef std::valarray<Complex> CArray;
-int GlobalinputArraySize;
 
 //user set parameters
 const int k_fftInputLen = 100; //length of FFT input array(data points per FFT frame)
@@ -44,9 +66,10 @@ const int k_fftFrameOffset = 10; //offset between start of FFT frames(eg x[n]=x[
 /**********************************************************
  * Functions run on single thread
  **********************************************************/
-double* readCSV()
+ContiguousArray<double> readCSV()
 {
     std::vector<double> csvVector;
+    ContiguousArray<double> retArray;
 
     const char delimeter = ',';//delimeter between items in CSV file
     std::string line;
@@ -61,17 +84,16 @@ double* readCSV()
         inputArraySize++;
     }
 
-    //Memory allocated here will need to be freed at end of program
-    //CUDA requires contiguous memory that
-    double* inputArray = new double[inputArraySize];
+    //CUDA requires contiguous memory
+    retArray.ptr = new double[inputArraySize];
+    retArray.numElements = inputArraySize;
+
     for (int i = 0; i < inputArraySize; i++)
     {
-        inputArray[i] = csvVector[i];
+        retArray.ptr[i] = csvVector[i];
     }
 
-    GlobalinputArraySize = inputArraySize;
-
-    return inputArray;
+    return retArray;
 }
 
 std::vector<int> generateFrameOffsets()
@@ -86,7 +108,7 @@ std::vector<int> generateFrameOffsets()
     return offsets;
 }
 
-std::vector<double> generateFilter()
+ContiguousArray<double> generateFilter()
 {
     //w[n] = a0 - a1*cos(x) + a2*cos(2x) - a3cos(3x), x = (2n*pi)/N, 0 < n < N
     const double a0 = 0.35875;
@@ -94,10 +116,13 @@ std::vector<double> generateFilter()
     const double a2 = 0.14128;
     const double a3 = 0.01168;
 
-    std::vector<double> outputFilter;
+    ContiguousArray<double> retArray;
     double x;
     double term1, term2, term3;
     double w_n;
+
+    retArray.ptr = new double[k_fftInputLen];
+    retArray.numElements = k_fftInputLen;
 
     for (int n = 0; n < k_fftInputLen; n++)
     {
@@ -111,10 +136,10 @@ std::vector<double> generateFilter()
 
         w_n = a0 - term1 + term2 - term3;
 
-        outputFilter.push_back(w_n);
+        retArray.ptr[n] = w_n;
     }
 
-    return outputFilter;
+    return retArray;
 }
 
  /**********************************************************
@@ -168,8 +193,8 @@ __device__ void kernelWindowData(int frameOffset, double* filterVec, double* inp
 
         # if __CUDA_ARCH__>=200
         //printf("%f \n", windowedDataI[n]);
-        //printf("%f \n", filterVec[n]);
-        printf("%f \n", inputArrayVec[n]);
+        printf("%f \n", filterVec[n]);
+        //printf("%f \n", inputArrayVec[n]);
         #endif
     }
 }
@@ -209,10 +234,10 @@ int main()
     std::cout << "Start of program\n";
 
     //Read CSV file and put elements in inputArray vector
-    double* inputArray = readCSV();
+    ContiguousArray<double> inputArray = readCSV();
 
     //generate blackman-harris filter from 0 to k_fftInputLen-1 to window the input data
-    std::vector<double> filter = generateFilter();
+    ContiguousArray<double> filter = generateFilter();
 
     //generate frameOffsets
     const std::vector<int> frameOffsets = generateFrameOffsets();//list of frame offsets used by workers
@@ -237,7 +262,7 @@ int main()
     return 0;
 }
 
-cudaError_t FFTWithCuda(std::vector<double>& filter, const std::vector<int>& frameOffsets, double* inputArray)
+cudaError_t FFTWithCuda(ContiguousArray<double> filter, const std::vector<int>& frameOffsets, ContiguousArray<double> inputArray)
 {
     cudaError_t cudaStatus;
     double* dev_filter = 0;
@@ -259,19 +284,19 @@ cudaError_t FFTWithCuda(std::vector<double>& filter, const std::vector<int>& fra
 
     //Allocate space on GPU for the filter, frameOffsets, and inputArray.  Only one of each is needed
 
-    cudaStatus = cudaMalloc((void**)&dev_filter, sizeof(filter));
+    cudaStatus = cudaMalloc((void**)&dev_filter, filter.getSize());
     if (cudaStatus != cudaSuccess) {
         fprintf(stderr, "cudaMalloc failed!");
         goto Error;
     }
 
-    cudaStatus = cudaMalloc((void**)&dev_frameOffsets, sizeof(frameOffsets));
+    cudaStatus = cudaMalloc((void**)&dev_frameOffsets, sizeof(frameOffsets) * sizeof(int));
     if (cudaStatus != cudaSuccess) {
         fprintf(stderr, "cudaMalloc failed!");
         goto Error;
     }
 
-    cudaStatus = cudaMalloc((void**)&dev_inputArray, GlobalinputArraySize);//todo replace global
+    cudaStatus = cudaMalloc((void**)&dev_inputArray, inputArray.getSize());
     if (cudaStatus != cudaSuccess) {
         fprintf(stderr, "cudaMalloc failed!");
         goto Error;
@@ -298,19 +323,19 @@ cudaError_t FFTWithCuda(std::vector<double>& filter, const std::vector<int>& fra
 
     //Copy input vectors from host memory to GPU buffers
     
-    cudaStatus = cudaMemcpy(dev_filter, &filter[0], sizeof(filter), cudaMemcpyHostToDevice);
+    cudaStatus = cudaMemcpy(dev_filter, filter.ptr, filter.getSize(), cudaMemcpyHostToDevice);
     if (cudaStatus != cudaSuccess) {
         fprintf(stderr, "cudaMemcpy failed!");
         goto Error;
     }
 
-    cudaStatus = cudaMemcpy(dev_frameOffsets, &frameOffsets[0], sizeof(frameOffsets), cudaMemcpyHostToDevice);
+    cudaStatus = cudaMemcpy(dev_frameOffsets, &frameOffsets[0], sizeof(frameOffsets)*sizeof(int), cudaMemcpyHostToDevice);
     if (cudaStatus != cudaSuccess) {
         fprintf(stderr, "cudaMemcpy failed!");
         goto Error;
     }
 
-    cudaStatus = cudaMemcpy(dev_inputArray, &inputArray[0], GlobalinputArraySize, cudaMemcpyHostToDevice);//todo replace global
+    cudaStatus = cudaMemcpy(dev_inputArray, inputArray.ptr, inputArray.getSize(), cudaMemcpyHostToDevice);//todo replace global
     if (cudaStatus != cudaSuccess) {
         fprintf(stderr, "cudaMemcpy failed!");
         goto Error;
