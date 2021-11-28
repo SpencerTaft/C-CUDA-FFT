@@ -150,29 +150,6 @@ ContiguousArray<double> generateFilter()
   * Functions run in parallel
   **********************************************************/
 
-// Cooley–Tukey FFT (in-place)
-void fft(CArray& x)
-{
-    const size_t N = x.size();
-    if (N <= 1) return;
-
-    // divide
-    CArray even = x[std::slice(0, N / 2, 2)];
-    CArray  odd = x[std::slice(1, N / 2, 2)];
-
-    // conquer
-    fft(even);
-    fft(odd);
-
-    // combine
-    for (size_t k = 0; k < N / 2; ++k)
-    {
-        Complex t = std::polar(1.0, -2 * PI * k / N) * odd[k];
-        x[k] = even[k] + t;         //todo this is overwriting the input data, need to preserve input copy
-        x[k + N / 2] = even[k] - t; //todo this is overwriting the input data, need to preserve input copy
-    }
-}
-
 /*  Apply blackman - harris filter to input data frame.
  *  Return the result as a vector.                      */
 std::vector<double> windowData(int frameOffset, std::vector<double> filter, std::vector<double> inputArray)
@@ -203,7 +180,38 @@ __device__ void kernelWindowData(int frameOffset, double* filterVec, double* inp
     }
 }
 
-__device__ void FFTkernelRecursive(int i)
+//>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
+//>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
+//>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
+//>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
+// Cooley–Tukey FFT (in-place)
+void fft(CArray& x)
+{
+    const size_t N = x.size();
+    if (N <= 1) return;
+
+    // divide
+    CArray even = x[std::slice(0, N / 2, 2)];
+    CArray  odd = x[std::slice(1, N / 2, 2)];
+
+    // conquer
+    fft(even);
+    fft(odd);
+
+    // combine
+    for (size_t k = 0; k < N / 2; ++k)
+    {
+        Complex t = std::polar(1.0, -2 * PI * k / N) * odd[k];
+        x[k] = even[k] + t;         //todo this is overwriting the input data, need to preserve input copy
+        x[k + N / 2] = even[k] - t; //todo this is overwriting the input data, need to preserve input copy
+    }
+}
+//<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<
+//<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<
+//<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<
+//<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<
+
+__device__ void FFTkernelRecursive(int i, double* windowedDataI)
 {
     //do nothing
     //fft(data);
@@ -212,22 +220,18 @@ __device__ void FFTkernelRecursive(int i)
 //todo this needs to receive pointer to return memory
 __global__ void FFTkernel(double* filterVec, int* frameOffsetsVec, double* inputArrayVec, double* windowedData)
 {
-    //Todo skip window for now, add once I get the raw FFT working on GPU
-    //std::vector<double> windowedData = windowData(0, filter, inputArray);
-
-    //windowData would return a vector with length k_fftInputLen and applies the frame offset.  for testing, run FFT on the first frame
-
     int i = threadIdx.x;
 
     int windowedDataOffset = i * k_fftInputLen;
     double* windowedDataI = windowedData + windowedDataOffset;
 
+    kernelWindowData(i, filterVec, inputArrayVec, windowedDataI);
+
+    FFTkernelRecursive(i, windowedDataI);
+
     # if __CUDA_ARCH__>=200
     //printf("%d \n", frameOffsetsVec[i]);
     #endif  
-
-    kernelWindowData(i, filterVec, inputArrayVec, windowedDataI);
-    FFTkernelRecursive(i);
 }
 
  /**********************************************************
@@ -272,12 +276,13 @@ cudaError_t FFTWithCuda(ContiguousArray<double> filter, ContiguousArray<int> fra
     double* dev_filter = 0;
     int* dev_frameOffsets = 0;
     double* dev_inputArray = 0;
+    double* dev_windowedData = 0;
 
     //todo debug, only run one thread until that case works
-    const int const threadCount = frameOffsets.numElements;
-    std::vector<double> emptyWindowedData;
+    const int const threadCount = 1;///////////////frameOffsets.numElements;
+    //std::vector<double> emptyWindowedData;
 
-    double* dev_windowedData = 0;
+    
 
     // Choose which GPU to run on, change this on a multi-GPU system
     cudaStatus = cudaSetDevice(0);
@@ -307,11 +312,15 @@ cudaError_t FFTWithCuda(ContiguousArray<double> filter, ContiguousArray<int> fra
     }
 
     //Allocate room on GPU for windowed data (windowing is run in parallel), data initialized on GPU so no memcpy for this data
+    //ContiguousArray<double> emptyWindowedData;
+    //emptyWindowedData.numElements = k_fftInputLen * threadCount;
+    //emptyWindowedData.
+    
 
-    for (int i = 0; i < (k_fftInputLen*threadCount); i++)
-    {
-        emptyWindowedData.push_back(0.0);
-    }
+    //for (int i = 0; i < (k_fftInputLen*threadCount); i++)
+    //{
+    //    emptyWindowedData.push_back(0.0);
+    //}
 
     cudaStatus = cudaMalloc((void**)&dev_windowedData, (k_fftInputLen*threadCount));
     if (cudaStatus != cudaSuccess) {
@@ -319,11 +328,11 @@ cudaError_t FFTWithCuda(ContiguousArray<double> filter, ContiguousArray<int> fra
         goto Error;
     }
 
-    cudaStatus = cudaMemcpy(dev_windowedData, &emptyWindowedData[0], sizeof(emptyWindowedData), cudaMemcpyHostToDevice);
-    if (cudaStatus != cudaSuccess) {
-        fprintf(stderr, "cudaMemcpy failed!");
-        goto Error;
-    }
+    //cudaStatus = cudaMemcpy(dev_windowedData, &emptyWindowedData[0], sizeof(emptyWindowedData), cudaMemcpyHostToDevice);
+    //if (cudaStatus != cudaSuccess) {
+    //    fprintf(stderr, "cudaMemcpy failed!");
+    //    goto Error;
+    //}
 
     //Copy input vectors from host memory to GPU buffers
     
@@ -365,8 +374,12 @@ cudaError_t FFTWithCuda(ContiguousArray<double> filter, ContiguousArray<int> fra
     }
 
     // Copy output vector from GPU buffer to host memory.
-    //emptyWindowedData now contains the windowedData
-    cudaStatus = cudaMemcpy(&emptyWindowedData[0], dev_windowedData, sizeof(emptyWindowedData), cudaMemcpyDeviceToHost);
+    ContiguousArray<double> outputData;
+    outputData.numElements = k_fftInputLen * threadCount;
+    outputData.ptr = new double[outputData.numElements];
+
+
+    cudaStatus = cudaMemcpy(outputData.ptr, dev_windowedData, outputData.getSize(), cudaMemcpyDeviceToHost);
     if (cudaStatus != cudaSuccess) {
         fprintf(stderr, "cudaMemcpy failed!");
         goto Error;
