@@ -45,11 +45,11 @@ public:
 
 //Function declarations
 ContiguousArray<double> readCSV();
-std::vector<int> generateFrameOffsets();
+ContiguousArray<int> generateFrameOffsets();
 ContiguousArray<double> generateFilter();
 std::vector<double> windowData(int frameOffset, std::vector<double> filter);
 void fft(CArray& x);
-cudaError_t FFTWithCuda(ContiguousArray<double> filter, const std::vector<int>& frameOffsets, ContiguousArray<double> inputArray);
+cudaError_t FFTWithCuda(ContiguousArray<double> filter, ContiguousArray<int> frameOffsets, ContiguousArray<double> inputArray);
 
 //Global variables
 int inputArraySize = 0;
@@ -85,8 +85,8 @@ ContiguousArray<double> readCSV()
     }
 
     //CUDA requires contiguous memory
-    retArray.ptr = new double[inputArraySize];
     retArray.numElements = inputArraySize;
+    retArray.ptr = new double[retArray.numElements];
 
     for (int i = 0; i < inputArraySize; i++)
     {
@@ -96,13 +96,17 @@ ContiguousArray<double> readCSV()
     return retArray;
 }
 
-std::vector<int> generateFrameOffsets()
+ContiguousArray<int> generateFrameOffsets()
 {
-    std::vector<int> offsets;
+    ContiguousArray<int> offsets;
 
-    for (int i = 0; i < (inputArraySize - k_fftInputLen); i += k_fftFrameOffset)
+    //CUDA requires contiguous memory
+    offsets.numElements = (inputArraySize - k_fftInputLen) / k_fftFrameOffset;
+    offsets.ptr = new int[offsets.numElements];
+
+    for (int i = 0; (i * k_fftFrameOffset) <= (inputArraySize - k_fftInputLen); i++)
     {
-        offsets.push_back(i);
+        offsets.ptr[i] = (i * k_fftFrameOffset);
     }
 
     return offsets;
@@ -121,8 +125,8 @@ ContiguousArray<double> generateFilter()
     double term1, term2, term3;
     double w_n;
 
-    retArray.ptr = new double[k_fftInputLen];
     retArray.numElements = k_fftInputLen;
+    retArray.ptr = new double[retArray.numElements];
 
     for (int n = 0; n < k_fftInputLen; n++)
     {
@@ -193,7 +197,7 @@ __device__ void kernelWindowData(int frameOffset, double* filterVec, double* inp
 
         # if __CUDA_ARCH__>=200
         //printf("%f \n", windowedDataI[n]);
-        printf("%f \n", filterVec[n]);
+        //printf("%f \n", filterVec[n]);
         //printf("%f \n", inputArrayVec[n]);
         #endif
     }
@@ -219,7 +223,7 @@ __global__ void FFTkernel(double* filterVec, int* frameOffsetsVec, double* input
     double* windowedDataI = windowedData + windowedDataOffset;
 
     # if __CUDA_ARCH__>=200
-    //printf("%f \n", windowedDataI);
+    //printf("%d \n", frameOffsetsVec[i]);
     #endif  
 
     kernelWindowData(i, filterVec, inputArrayVec, windowedDataI);
@@ -240,7 +244,7 @@ int main()
     ContiguousArray<double> filter = generateFilter();
 
     //generate frameOffsets
-    const std::vector<int> frameOffsets = generateFrameOffsets();//list of frame offsets used by workers
+    ContiguousArray<int> frameOffsets = generateFrameOffsets();//list of frame offsets used by workers
 
     // Run FFT in parallel.
     cudaError_t cudaStatus = FFTWithCuda(filter, frameOffsets, inputArray);
@@ -262,7 +266,7 @@ int main()
     return 0;
 }
 
-cudaError_t FFTWithCuda(ContiguousArray<double> filter, const std::vector<int>& frameOffsets, ContiguousArray<double> inputArray)
+cudaError_t FFTWithCuda(ContiguousArray<double> filter, ContiguousArray<int> frameOffsets, ContiguousArray<double> inputArray)
 {
     cudaError_t cudaStatus;
     double* dev_filter = 0;
@@ -270,7 +274,7 @@ cudaError_t FFTWithCuda(ContiguousArray<double> filter, const std::vector<int>& 
     double* dev_inputArray = 0;
 
     //todo debug, only run one thread until that case works
-    const int const threadCount = 1;///////////////////////////frameOffsets.size();
+    const int const threadCount = frameOffsets.numElements;
     std::vector<double> emptyWindowedData;
 
     double* dev_windowedData = 0;
@@ -290,7 +294,7 @@ cudaError_t FFTWithCuda(ContiguousArray<double> filter, const std::vector<int>& 
         goto Error;
     }
 
-    cudaStatus = cudaMalloc((void**)&dev_frameOffsets, sizeof(frameOffsets) * sizeof(int));
+    cudaStatus = cudaMalloc((void**)&dev_frameOffsets, frameOffsets.getSize());
     if (cudaStatus != cudaSuccess) {
         fprintf(stderr, "cudaMalloc failed!");
         goto Error;
@@ -329,7 +333,7 @@ cudaError_t FFTWithCuda(ContiguousArray<double> filter, const std::vector<int>& 
         goto Error;
     }
 
-    cudaStatus = cudaMemcpy(dev_frameOffsets, &frameOffsets[0], sizeof(frameOffsets)*sizeof(int), cudaMemcpyHostToDevice);
+    cudaStatus = cudaMemcpy(dev_frameOffsets, frameOffsets.ptr, frameOffsets.getSize(), cudaMemcpyHostToDevice);
     if (cudaStatus != cudaSuccess) {
         fprintf(stderr, "cudaMemcpy failed!");
         goto Error;
