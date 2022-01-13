@@ -173,7 +173,7 @@ __device__ void kernelWindowData(int frameOffset, double* filterVec, double* inp
         windowedDataI[n] = filterVec[n] * inputArrayVec[n + frameOffset];
 
         # if __CUDA_ARCH__>=200
-        //printf("%f \n", windowedDataI[n]);
+        printf("%f \n", windowedDataI[n]);
         //printf("%f \n", filterVec[n]);
         //printf("%f \n", inputArrayVec[n]);
         #endif
@@ -184,37 +184,143 @@ __device__ void kernelWindowData(int frameOffset, double* filterVec, double* inp
 //>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
 //>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
 //>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
-// Cooley–Tukey FFT (in-place)
-void fft(CArray& x)
+//// Cooley–Tukey FFT (in-place)
+//void fft(CArray& x)
+//{
+//    const size_t N = x.size();
+//    if (N <= 1) return;
+//
+//    // divide
+//    CArray even = x[std::slice(0, N / 2, 2)];
+//    CArray  odd = x[std::slice(1, N / 2, 2)];
+//
+//    // conquer
+//    fft(even);
+//    fft(odd);
+//
+//    // combine
+//    for (size_t k = 0; k < N / 2; ++k)
+//    {
+//        Complex t = std::polar(1.0, -2 * PI * k / N) * odd[k];
+//        x[k] = even[k] + t;         //todo this is overwriting the input data, need to preserve input copy
+//        x[k + N / 2] = even[k] - t; //todo this is overwriting the input data, need to preserve input copy
+//    }
+//}
+ 
+double* FFTkernelRecursiveCVersion(double* windowedDataI, int inputSize)
 {
-    const size_t N = x.size();
-    if (N <= 1) return;
-
-    // divide
-    CArray even = x[std::slice(0, N / 2, 2)];
-    CArray  odd = x[std::slice(1, N / 2, 2)];
-
-    // conquer
-    fft(even);
-    fft(odd);
-
-    // combine
-    for (size_t k = 0; k < N / 2; ++k)
+    if (inputSize <= 1)
     {
-        Complex t = std::polar(1.0, -2 * PI * k / N) * odd[k];
-        x[k] = even[k] + t;         //todo this is overwriting the input data, need to preserve input copy
-        x[k + N / 2] = even[k] - t; //todo this is overwriting the input data, need to preserve input copy
+        return nullptr;
     }
+
+    int start, size, stride;
+    double polarMagnitude;
+    double theta;
+
+    //replacement for slice
+    size = inputSize / 2;
+    stride = 2;
+
+    double* evenSlice = new double[size];
+    double* oddSlice = new double[size];
+
+    //divide
+    for (int i = 0; i < size; i++)
+    {
+        evenSlice[i] = windowedDataI[(i * stride)];
+        oddSlice[i] = windowedDataI[1 + (i * stride)];
+    }
+
+    //conquer
+    FFTkernelRecursiveCVersion(evenSlice, size);
+    FFTkernelRecursiveCVersion(oddSlice, size);
+
+    double x[100];
+
+    for (size_t k = 0; k < size / 2; ++k)
+    {
+        double oddIndex = oddSlice[k];
+        double evenIndex = evenSlice[k];
+
+        double theta = -2 * PI * k / size; //radians
+        theta *= 57.29578; //to degrees
+        //confirmed replaces std::polar below
+        double t_real = cos(theta) * oddIndex;
+        double t_imag = sin(theta) * oddIndex;
+
+        //x[k] = evenIndex + t;
+        //Calculate x[k]
+        double xk_real = evenIndex + t_real;
+        xk_real *= xk_real;
+        double xk_imag = t_imag;
+        xk_imag *= xk_imag;
+        x[k] = sqrt(xk_real + xk_imag);
+
+        //Calculate x[k + size / 2]
+        //todo this isn't working.... makes a very large value
+        double xk2_real = evenIndex - t_real;
+        xk2_real *= xk2_real;
+        double xk2_imag = -t_imag;
+        xk2_imag *= xk2_imag;
+        x[k + size / 2] = sqrt(xk2_real + xk2_imag);
+    }
+
+    return x;
 }
+ 
 //<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<
 //<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<
 //<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<
 //<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<
 
-__device__ void FFTkernelRecursive(int i, double* windowedDataI)
+__device__ void FFTkernelRecursive(double* windowedDataI, int inputSize)
 {
+    if (inputSize <= 1) return;
+
+    int start, size, stride;
+    double polarMagnitude;
+    double theta;
+    //double li; //180/pi
+
+    size = inputSize / 2;
+    stride = 2;
+
+    double* evenSlice = new double[size];
+    double* oddSlice = new double[size];
+
+    //divide
+    for (int i = 0; i < size; i++)
+    {
+        evenSlice[i] = windowedDataI[(i * stride)];
+        oddSlice[i] = windowedDataI[1 + (i * stride)];
+    }
+
+    //conquer
+    FFTkernelRecursive(evenSlice, size);
+    FFTkernelRecursive(oddSlice, size);
+
     //do nothing
     //fft(data);
+
+    //combine
+
+    for (int j = 0; j < (inputSize / 2); j++)
+    {
+        theta = -6.28318 * j / inputSize; //theta is in radians, 0 -> -pi @ (j = inputSize/2)
+
+        //todo ignoring imaginary part for now...
+        //todo NEXT TIME double check that theta is going through the right range
+        polarMagnitude = cos(theta); //+ ( sin(theta) * li ) * oddSlice[j];
+
+        windowedDataI[j] = evenSlice[j] + polarMagnitude;
+        windowedDataI[j + (inputSize / 2)] = evenSlice[j] - polarMagnitude;
+
+# if __CUDA_ARCH__>=200
+        //printf("%f \n", windowedDataI[j]);
+        //printf("%f \n", polarMagnitude);
+#endif
+    }
 }
 
 //todo this needs to receive pointer to return memory
@@ -227,7 +333,7 @@ __global__ void FFTkernel(double* filterVec, int* frameOffsetsVec, double* input
 
     kernelWindowData(i, filterVec, inputArrayVec, windowedDataI);
 
-    FFTkernelRecursive(i, windowedDataI);
+    FFTkernelRecursive(windowedDataI, k_fftInputLen);
 
     # if __CUDA_ARCH__>=200
     //printf("%d \n", frameOffsetsVec[i]);
@@ -265,7 +371,7 @@ int main()
         return 1;
     }
 
-    std::cout << "End of program\n";
+     std::cout << "End of program\n";
 
     return 0;
 }
@@ -280,9 +386,6 @@ cudaError_t FFTWithCuda(ContiguousArray<double> filter, ContiguousArray<int> fra
 
     //todo debug, only run one thread until that case works
     const int const threadCount = 1;///////////////frameOffsets.numElements;
-    //std::vector<double> emptyWindowedData;
-
-    
 
     // Choose which GPU to run on, change this on a multi-GPU system
     cudaStatus = cudaSetDevice(0);
@@ -312,30 +415,13 @@ cudaError_t FFTWithCuda(ContiguousArray<double> filter, ContiguousArray<int> fra
     }
 
     //Allocate room on GPU for windowed data (windowing is run in parallel), data initialized on GPU so no memcpy for this data
-    //ContiguousArray<double> emptyWindowedData;
-    //emptyWindowedData.numElements = k_fftInputLen * threadCount;
-    //emptyWindowedData.
-    
-
-    //for (int i = 0; i < (k_fftInputLen*threadCount); i++)
-    //{
-    //    emptyWindowedData.push_back(0.0);
-    //}
-
     cudaStatus = cudaMalloc((void**)&dev_windowedData, (k_fftInputLen*threadCount));
     if (cudaStatus != cudaSuccess) {
         fprintf(stderr, "cudaMalloc failed!");
         goto Error;
     }
 
-    //cudaStatus = cudaMemcpy(dev_windowedData, &emptyWindowedData[0], sizeof(emptyWindowedData), cudaMemcpyHostToDevice);
-    //if (cudaStatus != cudaSuccess) {
-    //    fprintf(stderr, "cudaMemcpy failed!");
-    //    goto Error;
-    //}
-
     //Copy input vectors from host memory to GPU buffers
-    
     cudaStatus = cudaMemcpy(dev_filter, filter.ptr, filter.getSize(), cudaMemcpyHostToDevice);
     if (cudaStatus != cudaSuccess) {
         fprintf(stderr, "cudaMemcpy failed!");
@@ -378,12 +464,12 @@ cudaError_t FFTWithCuda(ContiguousArray<double> filter, ContiguousArray<int> fra
     outputData.numElements = k_fftInputLen * threadCount;
     outputData.ptr = new double[outputData.numElements];
 
-
-    cudaStatus = cudaMemcpy(outputData.ptr, dev_windowedData, outputData.getSize(), cudaMemcpyDeviceToHost);
-    if (cudaStatus != cudaSuccess) {
-        fprintf(stderr, "cudaMemcpy failed!");
-        goto Error;
-    }
+    //TODO this memcpy fails
+    //cudaStatus = cudaMemcpy(outputData.ptr, dev_windowedData, outputData.getSize(), cudaMemcpyDeviceToHost);
+    //if (cudaStatus != cudaSuccess) {
+    //    fprintf(stderr, "cudaMemcpy failed!");
+    //    goto Error;
+    //}
 
 Error:
     //Free input data
