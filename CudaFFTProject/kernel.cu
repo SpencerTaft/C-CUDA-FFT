@@ -171,12 +171,6 @@ __device__ void kernelWindowData(int frameOffset, double* filterVec, double* inp
     for (int n = 0; n < k_fftInputLen; n++)
     {
         windowedDataI[n] = filterVec[n] * inputArrayVec[n + frameOffset];
-
-        # if __CUDA_ARCH__>=200
-        printf("%f \n", windowedDataI[n]);
-        //printf("%f \n", filterVec[n]);
-        //printf("%f \n", inputArrayVec[n]);
-        #endif
     }
 }
 
@@ -207,13 +201,14 @@ __device__ void kernelWindowData(int frameOffset, double* filterVec, double* inp
 //    }
 //}
  
-double* FFTkernelRecursiveCVersion(double* windowedDataI, int inputSize)
+__device__ double* FFTkernelRecursiveCVersion(double* windowedDataI, int inputSize)
 {
     if (inputSize <= 1)
     {
         return nullptr;
     }
 
+    const double PI = 3.141592653589793238460;
     int start, size, stride;
     double polarMagnitude;
     double theta;
@@ -265,6 +260,11 @@ double* FFTkernelRecursiveCVersion(double* windowedDataI, int inputSize)
         xk2_imag *= xk2_imag;
         x[k + size / 2] = sqrt(xk2_real + xk2_imag);
     }
+
+# if __CUDA_ARCH__>=200
+    //printf("%f \n", windowedDataI[j]);
+    //printf("%f \n", polarMagnitude);
+#endif
 
     return x;
 }
@@ -329,11 +329,15 @@ __global__ void FFTkernel(double* filterVec, int* frameOffsetsVec, double* input
     int i = threadIdx.x;
 
     int windowedDataOffset = i * k_fftInputLen;
-    double* windowedDataI = windowedData + windowedDataOffset;
+    double* windowedDataI = windowedData + windowedDataOffset; 
 
-    kernelWindowData(i, filterVec, inputArrayVec, windowedDataI);
+    kernelWindowData(i, filterVec, inputArrayVec, windowedDataI); printf("GOT HERE\n");
 
-    FFTkernelRecursive(windowedDataI, k_fftInputLen);
+    //>>>>>>>>>>>>>>>>>>>>>>>>
+    FFTkernelRecursiveCVersion(windowedDataI, k_fftInputLen); printf("GOT HERE2\n");
+    //--------------
+    //FFTkernelRecursive(windowedDataI, k_fftInputLen);
+    //<<<<<<<<<<<<<<<<<<<
 
     # if __CUDA_ARCH__>=200
     //printf("%d \n", frameOffsetsVec[i]);
@@ -447,7 +451,7 @@ cudaError_t FFTWithCuda(ContiguousArray<double> filter, ContiguousArray<int> fra
     // Check for any errors launching the kernel
     cudaStatus = cudaGetLastError();
     if (cudaStatus != cudaSuccess) {
-        fprintf(stderr, "addKernel launch failed: %s\n", cudaGetErrorString(cudaStatus));
+        fprintf(stderr, "FFTKernel launch failed: %s\n", cudaGetErrorString(cudaStatus));
         goto Error;
     }
 
@@ -455,7 +459,7 @@ cudaError_t FFTWithCuda(ContiguousArray<double> filter, ContiguousArray<int> fra
     // any errors encountered during the launch.
     cudaStatus = cudaDeviceSynchronize();
     if (cudaStatus != cudaSuccess) {
-        fprintf(stderr, "cudaDeviceSynchronize returned error code %d after launching addKernel!\n", cudaStatus);
+        fprintf(stderr, "cudaDeviceSynchronize returned error code %d after launching FFTKernel!\n", cudaStatus);
         goto Error;
     }
 
