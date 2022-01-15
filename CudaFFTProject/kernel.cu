@@ -201,11 +201,11 @@ __device__ void kernelWindowData(int frameOffset, double* filterVec, double* inp
 //    }
 //}
  
-__device__ double* FFTkernelRecursiveCVersion(double* windowedDataI, int inputSize)
+__device__ void FFTkernelRecursiveCVersion(double* windowedDataI, int inputSize)
 {
     if (inputSize <= 1)
     {
-        return nullptr;
+        return;
     }
 
     const double PI = 3.141592653589793238460;
@@ -216,9 +216,9 @@ __device__ double* FFTkernelRecursiveCVersion(double* windowedDataI, int inputSi
     //replacement for slice
     size = inputSize / 2;
     stride = 2;
-
-    double* evenSlice = new double[size];
-    double* oddSlice = new double[size];
+    
+    double* evenSlice = (double*)malloc(size);
+    double* oddSlice = (double*)malloc(size);
 
     //divide
     for (int i = 0; i < size; i++)
@@ -226,15 +226,16 @@ __device__ double* FFTkernelRecursiveCVersion(double* windowedDataI, int inputSi
         evenSlice[i] = windowedDataI[(i * stride)];
         oddSlice[i] = windowedDataI[1 + (i * stride)];
     }
-
+    
     //conquer
     FFTkernelRecursiveCVersion(evenSlice, size);
     FFTkernelRecursiveCVersion(oddSlice, size);
 
-    double x[100];
-
+    double* x = (double*)malloc(size);
+    
     for (size_t k = 0; k < size / 2; ++k)
     {
+        
         double oddIndex = oddSlice[k];
         double evenIndex = evenSlice[k];
 
@@ -244,6 +245,8 @@ __device__ double* FFTkernelRecursiveCVersion(double* windowedDataI, int inputSi
         double t_real = cos(theta) * oddIndex;
         double t_imag = sin(theta) * oddIndex;
 
+        //works up to here
+        
         //x[k] = evenIndex + t;
         //Calculate x[k]
         double xk_real = evenIndex + t_real;
@@ -251,7 +254,8 @@ __device__ double* FFTkernelRecursiveCVersion(double* windowedDataI, int inputSi
         double xk_imag = t_imag;
         xk_imag *= xk_imag;
         x[k] = sqrt(xk_real + xk_imag);
-
+        /*todo this chunk breaks on cuda, probably sqrt of an invalid value
+        * 
         //Calculate x[k + size / 2]
         //todo this isn't working.... makes a very large value
         double xk2_real = evenIndex - t_real;
@@ -259,69 +263,20 @@ __device__ double* FFTkernelRecursiveCVersion(double* windowedDataI, int inputSi
         double xk2_imag = -t_imag;
         xk2_imag *= xk2_imag;
         x[k + size / 2] = sqrt(xk2_real + xk2_imag);
+        */
     }
-
+    //todo free(evenSlice) and oddslice here
 # if __CUDA_ARCH__>=200
+    //printf("%f \n", x[j]);
     //printf("%f \n", windowedDataI[j]);
     //printf("%f \n", polarMagnitude);
 #endif
-
-    return x;
 }
- 
+  
 //<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<
 //<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<
 //<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<
 //<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<
-
-__device__ void FFTkernelRecursive(double* windowedDataI, int inputSize)
-{
-    if (inputSize <= 1) return;
-
-    int start, size, stride;
-    double polarMagnitude;
-    double theta;
-    //double li; //180/pi
-
-    size = inputSize / 2;
-    stride = 2;
-
-    double* evenSlice = new double[size];
-    double* oddSlice = new double[size];
-
-    //divide
-    for (int i = 0; i < size; i++)
-    {
-        evenSlice[i] = windowedDataI[(i * stride)];
-        oddSlice[i] = windowedDataI[1 + (i * stride)];
-    }
-
-    //conquer
-    FFTkernelRecursive(evenSlice, size);
-    FFTkernelRecursive(oddSlice, size);
-
-    //do nothing
-    //fft(data);
-
-    //combine
-
-    for (int j = 0; j < (inputSize / 2); j++)
-    {
-        theta = -6.28318 * j / inputSize; //theta is in radians, 0 -> -pi @ (j = inputSize/2)
-
-        //todo ignoring imaginary part for now...
-        //todo NEXT TIME double check that theta is going through the right range
-        polarMagnitude = cos(theta); //+ ( sin(theta) * li ) * oddSlice[j];
-
-        windowedDataI[j] = evenSlice[j] + polarMagnitude;
-        windowedDataI[j + (inputSize / 2)] = evenSlice[j] - polarMagnitude;
-
-# if __CUDA_ARCH__>=200
-        //printf("%f \n", windowedDataI[j]);
-        //printf("%f \n", polarMagnitude);
-#endif
-    }
-}
 
 //todo this needs to receive pointer to return memory
 __global__ void FFTkernel(double* filterVec, int* frameOffsetsVec, double* inputArrayVec, double* windowedData)
@@ -331,17 +286,21 @@ __global__ void FFTkernel(double* filterVec, int* frameOffsetsVec, double* input
     int windowedDataOffset = i * k_fftInputLen;
     double* windowedDataI = windowedData + windowedDataOffset; 
 
-    kernelWindowData(i, filterVec, inputArrayVec, windowedDataI); printf("GOT HERE\n");
+    kernelWindowData(i, filterVec, inputArrayVec, windowedDataI);
 
-    //>>>>>>>>>>>>>>>>>>>>>>>>
-    FFTkernelRecursiveCVersion(windowedDataI, k_fftInputLen); printf("GOT HERE2\n");
-    //--------------
-    //FFTkernelRecursive(windowedDataI, k_fftInputLen);
-    //<<<<<<<<<<<<<<<<<<<
+# if __CUDA_ARCH__>=200
+    printf("start of FFT calc\n");
+#endif
+
+    FFTkernelRecursiveCVersion(windowedDataI, k_fftInputLen);
+
+# if __CUDA_ARCH__>=200
+    printf("End of FFT calc\n");
+#endif
 
     # if __CUDA_ARCH__>=200
     //printf("%d \n", frameOffsetsVec[i]);
-    #endif  
+    #endif
 }
 
  /**********************************************************
