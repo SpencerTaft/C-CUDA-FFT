@@ -265,12 +265,16 @@ __device__ void FFTkernelRecursiveCVersion(double* windowedDataI, int inputSize)
         x[k + size / 2] = sqrt(xk2_real + xk2_imag);
         */
     }
+
+    //Transfer values to input data array, todo does this affect other data?  Should this go in an output buffer instead?
+    for (size_t k = 0; k < size / 2; ++k)
+    {
+        windowedDataI[k] = x[k];
+    }
     //todo free(evenSlice) and oddslice here
-# if __CUDA_ARCH__>=200
-    //printf("%f \n", x[j]);
-    //printf("%f \n", windowedDataI[j]);
-    //printf("%f \n", polarMagnitude);
-#endif
+    free(evenSlice);
+    free(oddSlice);
+    free(x);
 }
   
 //<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<
@@ -295,6 +299,13 @@ __global__ void FFTkernel(double* filterVec, int* frameOffsetsVec, double* input
     FFTkernelRecursiveCVersion(windowedDataI, k_fftInputLen);
 
 # if __CUDA_ARCH__>=200
+    //printf("%f \n", windowedDataI[k]);
+
+    for (int i = 0; i < k_fftInputLen / 2; i++)
+    {
+        printf("%f \n", windowedDataI[i]);
+    }
+    
     printf("End of FFT calc\n");
 #endif
 
