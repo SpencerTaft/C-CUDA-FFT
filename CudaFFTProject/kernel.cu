@@ -43,6 +43,12 @@ public:
     }
 };
 
+typedef struct Comp
+{
+    double real;
+    double imag;
+};
+
 //Function declarations
 ContiguousArray<double> readCSV();
 ContiguousArray<int> generateFrameOffsets();
@@ -60,7 +66,7 @@ typedef std::complex<double> Complex;
 typedef std::valarray<Complex> CArray;
 
 //user set parameters
-const int k_fftInputLen = 100; //length of FFT input array(data points per FFT frame)
+const int k_fftInputLen = 512; //length of FFT input array(data points per FFT frame)
 const int k_fftFrameOffset = 10; //offset between start of FFT frames(eg x[n]=x[n-1]+k_fftFrameOffset where x[n] is the first value used as input to the fft frame)
 
 /**********************************************************
@@ -166,42 +172,19 @@ std::vector<double> windowData(int frameOffset, std::vector<double> filter, std:
     return windowedVector;
 }
 
-__device__ void kernelWindowData(int frameOffset, double* filterVec, double* inputArrayVec, double* windowedDataI)
+__device__ void kernelWindowData(int frameOffset, double* filterVec, double* inputArrayVec, Comp* windowedDataI)
 {
     for (int n = 0; n < k_fftInputLen; n++)
     {
-        windowedDataI[n] = filterVec[n] * inputArrayVec[n + frameOffset];
+        windowedDataI[n].real = filterVec[n] * inputArrayVec[n + frameOffset];
+        windowedDataI[n].imag = 0.0;
     }
 }
-
-//>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
-//>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
-//>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
-//>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
-//// Cooley–Tukey FFT (in-place)
-//void fft(CArray& x)
-//{
-//    const size_t N = x.size();
-//    if (N <= 1) return;
-//
-//    // divide
-//    CArray even = x[std::slice(0, N / 2, 2)];
-//    CArray  odd = x[std::slice(1, N / 2, 2)];
-//
-//    // conquer
-//    fft(even);
-//    fft(odd);
-//
-//    // combine
-//    for (size_t k = 0; k < N / 2; ++k)
-//    {
-//        Complex t = std::polar(1.0, -2 * PI * k / N) * odd[k];
-//        x[k] = even[k] + t;         //todo this is overwriting the input data, need to preserve input copy
-//        x[k + N / 2] = even[k] - t; //todo this is overwriting the input data, need to preserve input copy
-//    }
-//}
- 
-__device__ void FFTkernelRecursiveCVersion(double* windowedDataI, int inputSize)
+//>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
+//>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
+//>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
+//>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
+__device__ void FFTkernelRecursiveCVersion(Comp* windowedDataI, int inputSize)
 {
     if (inputSize <= 1)
     {
@@ -216,9 +199,9 @@ __device__ void FFTkernelRecursiveCVersion(double* windowedDataI, int inputSize)
     //replacement for slice
     size = inputSize / 2;
     stride = 2;
-    
-    double* evenSlice = (double*)malloc(size);
-    double* oddSlice = (double*)malloc(size);
+
+    Comp* evenSlice = (Comp*)malloc(size);
+    Comp* oddSlice = (Comp*)malloc(size);
 
     //divide
     for (int i = 0; i < size; i++)
@@ -226,55 +209,39 @@ __device__ void FFTkernelRecursiveCVersion(double* windowedDataI, int inputSize)
         evenSlice[i] = windowedDataI[(i * stride)];
         oddSlice[i] = windowedDataI[1 + (i * stride)];
     }
+
+# if __CUDA_ARCH__>=200
+    printf("FFTPoint 1\n");
+#endif
     
     //conquer
-    FFTkernelRecursiveCVersion(evenSlice, size);
+    FFTkernelRecursiveCVersion(evenSlice, size);    //TODO this line crashes cuda, possibly the custom struct type?
     FFTkernelRecursiveCVersion(oddSlice, size);
-
-    double* x = (double*)malloc(size);
     
+# if __CUDA_ARCH__>=200
+    printf("FFTPoint 2\n");
+#endif
+
     for (size_t k = 0; k < size / 2; ++k)
     {
-        
-        double oddIndex = oddSlice[k];
-        double evenIndex = evenSlice[k];
-
+        Comp t;
         double theta = -2 * PI * k / size; //radians
-        theta *= 57.29578; //to degrees
+
         //confirmed replaces std::polar below
-        double t_real = cos(theta) * oddIndex;
-        double t_imag = sin(theta) * oddIndex;
+        t.real = (cos(theta) * oddSlice[k].real) - (sin(theta) * oddSlice[k].imag);
+        t.imag = (cos(theta) * oddSlice[k].imag) + (sin(theta) * oddSlice[k].real);
 
-        //works up to here
-        
-        //x[k] = evenIndex + t;
-        //Calculate x[k]
-        double xk_real = evenIndex + t_real;
-        xk_real *= xk_real;
-        double xk_imag = t_imag;
-        xk_imag *= xk_imag;
-        x[k] = sqrt(xk_real + xk_imag);
-        /*todo this chunk breaks on cuda, probably sqrt of an invalid value
-        * 
-        //Calculate x[k + size / 2]
-        //todo this isn't working.... makes a very large value
-        double xk2_real = evenIndex - t_real;
-        xk2_real *= xk2_real;
-        double xk2_imag = -t_imag;
-        xk2_imag *= xk2_imag;
-        x[k + size / 2] = sqrt(xk2_real + xk2_imag);
-        */
+        //x[k] = even[k] + t
+        windowedDataI[k].real = evenSlice[k].real + t.real;
+        windowedDataI[k].imag = evenSlice[k].imag + t.imag;
+
+        //x[k + N / 2] = even[k] - t;
+        windowedDataI[k + (size / 2)].real = evenSlice[k].real - t.real;
+        windowedDataI[k + (size / 2)].imag = evenSlice[k].imag - t.imag;
     }
 
-    //Transfer values to input data array, todo does this affect other data?  Should this go in an output buffer instead?
-    for (size_t k = 0; k < size / 2; ++k)
-    {
-        windowedDataI[k] = x[k];
-    }
-    //todo free(evenSlice) and oddslice here
     free(evenSlice);
     free(oddSlice);
-    free(x);
 }
   
 //<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<
@@ -283,12 +250,12 @@ __device__ void FFTkernelRecursiveCVersion(double* windowedDataI, int inputSize)
 //<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<
 
 //todo this needs to receive pointer to return memory
-__global__ void FFTkernel(double* filterVec, int* frameOffsetsVec, double* inputArrayVec, double* windowedData)
+__global__ void FFTkernel(double* filterVec, int* frameOffsetsVec, double* inputArrayVec, Comp* windowedData)
 {
     int i = threadIdx.x;
 
     int windowedDataOffset = i * k_fftInputLen;
-    double* windowedDataI = windowedData + windowedDataOffset; 
+    Comp* windowedDataI = windowedData + windowedDataOffset; 
 
     kernelWindowData(i, filterVec, inputArrayVec, windowedDataI);
 
@@ -299,13 +266,10 @@ __global__ void FFTkernel(double* filterVec, int* frameOffsetsVec, double* input
     FFTkernelRecursiveCVersion(windowedDataI, k_fftInputLen);
 
 # if __CUDA_ARCH__>=200
-    //printf("%f \n", windowedDataI[k]);
-
-    for (int i = 0; i < k_fftInputLen / 2; i++)
-    {
-        printf("%f \n", windowedDataI[i]);
-    }
-    
+//    for (int i = 0; i < k_fftInputLen / 2; i++)
+//    {
+//        printf("%f \n", windowedDataI[i].real);
+//    }
     printf("End of FFT calc\n");
 #endif
 
@@ -356,7 +320,7 @@ cudaError_t FFTWithCuda(ContiguousArray<double> filter, ContiguousArray<int> fra
     double* dev_filter = 0;
     int* dev_frameOffsets = 0;
     double* dev_inputArray = 0;
-    double* dev_windowedData = 0;
+    Comp* dev_windowedData = 0;
 
     //todo debug, only run one thread until that case works
     const int const threadCount = 1;///////////////frameOffsets.numElements;
@@ -389,7 +353,7 @@ cudaError_t FFTWithCuda(ContiguousArray<double> filter, ContiguousArray<int> fra
     }
 
     //Allocate room on GPU for windowed data (windowing is run in parallel), data initialized on GPU so no memcpy for this data
-    cudaStatus = cudaMalloc((void**)&dev_windowedData, (k_fftInputLen*threadCount));
+    cudaStatus = cudaMalloc((void**)&dev_windowedData, (k_fftInputLen*threadCount*sizeof(Comp)));
     if (cudaStatus != cudaSuccess) {
         fprintf(stderr, "cudaMalloc failed!");
         goto Error;
