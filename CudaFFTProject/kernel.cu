@@ -45,25 +45,25 @@ public:
 
 typedef struct Comp
 {
-    double real;
-    double imag;
+    float real;
+    float imag;
 };
 
 //Function declarations
-ContiguousArray<double> readCSV();
+ContiguousArray<float> readCSV();
 ContiguousArray<int> generateFrameOffsets();
-ContiguousArray<double> generateFilter();
-std::vector<double> windowData(int frameOffset, std::vector<double> filter);
+ContiguousArray<float> generateFilter();
+std::vector<float> windowData(int frameOffset, std::vector<float> filter);
 void fft(CArray& x);
-cudaError_t FFTWithCuda(ContiguousArray<double> filter, ContiguousArray<int> frameOffsets, ContiguousArray<double> inputArray);
+cudaError_t FFTWithCuda(ContiguousArray<float> filter, ContiguousArray<int> frameOffsets, ContiguousArray <float> inputArray);
 
 //Global variables
 int inputArraySize = 0;
 
 //Global FFT variables
-const double PI = 3.141592653589793238460;
-typedef std::complex<double> Complex;
-typedef std::valarray<Complex> CArray;
+//const float PI = (float)3.141592653589793238460;
+//typedef std::complex<float> Complex;
+//typedef std::valarray<Complex> CArray;
 
 //user set parameters
 const int k_fftInputLen = 512; //length of FFT input array(data points per FFT frame)
@@ -72,10 +72,10 @@ const int k_fftFrameOffset = 10; //offset between start of FFT frames(eg x[n]=x[
 /**********************************************************
  * Functions run on single thread
  **********************************************************/
-ContiguousArray<double> readCSV()
+ContiguousArray<float> readCSV()
 {
-    std::vector<double> csvVector;
-    ContiguousArray<double> retArray;
+    std::vector<float> csvVector;
+    ContiguousArray<float> retArray;
 
     const char delimeter = ',';//delimeter between items in CSV file
     std::string line;
@@ -86,13 +86,13 @@ ContiguousArray<double> readCSV()
     if (!myFile.is_open()) throw std::runtime_error("Couldn't open file");
 
     while (getline(myFile, string, delimeter)) {
-        csvVector.push_back(std::stod(string));
+        csvVector.push_back(std::stof(string));
         inputArraySize++;
     }
 
     //CUDA requires contiguous memory
     retArray.numElements = inputArraySize;
-    retArray.ptr = new double[retArray.numElements];
+    retArray.ptr = new float[retArray.numElements];
 
     for (int i = 0; i < inputArraySize; i++)
     {
@@ -118,21 +118,21 @@ ContiguousArray<int> generateFrameOffsets()
     return offsets;
 }
 
-ContiguousArray<double> generateFilter()
+ContiguousArray<float> generateFilter()
 {
     //w[n] = a0 - a1*cos(x) + a2*cos(2x) - a3cos(3x), x = (2n*pi)/N, 0 < n < N
-    const double a0 = 0.35875;
-    const double a1 = 0.48829;
-    const double a2 = 0.14128;
-    const double a3 = 0.01168;
+    const float a0 = 0.35875f;
+    const float a1 = 0.48829f;
+    const float a2 = 0.14128f;
+    const float a3 = 0.01168f;
 
-    ContiguousArray<double> retArray;
-    double x;
-    double term1, term2, term3;
-    double w_n;
+    ContiguousArray<float> retArray;
+    float x;
+    float term1, term2, term3;
+    float w_n;
 
     retArray.numElements = k_fftInputLen;
-    retArray.ptr = new double[retArray.numElements];
+    retArray.ptr = new float[retArray.numElements];
 
     for (int n = 0; n < k_fftInputLen; n++)
     {
@@ -158,10 +158,10 @@ ContiguousArray<double> generateFilter()
 
 /*  Apply blackman - harris filter to input data frame.
  *  Return the result as a vector.                      */
-std::vector<double> windowData(int frameOffset, std::vector<double> filter, std::vector<double> inputArray)
+std::vector<float> windowData(int frameOffset, std::vector<float> filter, std::vector<float> inputArray)
 {
-    std::vector<double>windowedVector;
-    double windowedData;
+    std::vector<float>windowedVector;
+    float windowedData;
 
     for (int n = 0; n < k_fftInputLen; n++)
     {
@@ -172,7 +172,7 @@ std::vector<double> windowData(int frameOffset, std::vector<double> filter, std:
     return windowedVector;
 }
 
-__device__ void kernelWindowData(int frameOffset, double* filterVec, double* inputArrayVec, Comp* windowedDataI)
+__device__ void kernelWindowData(int frameOffset, float* filterVec, float* inputArrayVec, Comp* windowedDataI)
 {
     for (int n = 0; n < k_fftInputLen; n++)
     {
@@ -191,17 +191,17 @@ __device__ void FFTkernelRecursiveCVersion(Comp* windowedDataI, int inputSize)
         return;
     }
 
-    const double PI = 3.141592653589793238460;
+    const float PI = (float)3.141592653589793238460;
     int start, size, stride;
-    double polarMagnitude;
-    double theta;
+    float polarMagnitude;
+    float theta;
 
     //replacement for slice
     size = inputSize / 2;
     stride = 2;
 
-    Comp* evenSlice = (Comp*)malloc(size);
-    Comp* oddSlice = (Comp*)malloc(size);
+    Comp* evenSlice = (Comp*)malloc(size*sizeof(Comp));
+    Comp* oddSlice = (Comp*)malloc(size*sizeof(Comp));
 
     //divide
     for (int i = 0; i < size; i++)
@@ -209,28 +209,25 @@ __device__ void FFTkernelRecursiveCVersion(Comp* windowedDataI, int inputSize)
         evenSlice[i] = windowedDataI[(i * stride)];
         oddSlice[i] = windowedDataI[1 + (i * stride)];
     }
-
-# if __CUDA_ARCH__>=200
-    printf("FFTPoint 1\n");
-#endif
     
     //conquer
-    FFTkernelRecursiveCVersion(evenSlice, size);    //TODO this line crashes cuda, possibly the custom struct type?
+    FFTkernelRecursiveCVersion(evenSlice, size);
     FFTkernelRecursiveCVersion(oddSlice, size);
     
-# if __CUDA_ARCH__>=200
-    printf("FFTPoint 2\n");
-#endif
 
+    
     for (size_t k = 0; k < size / 2; ++k)
     {
+        
         Comp t;
-        double theta = -2 * PI * k / size; //radians
-
+        float theta = -2 * PI * k / size; //radians
         //confirmed replaces std::polar below
-        t.real = (cos(theta) * oddSlice[k].real) - (sin(theta) * oddSlice[k].imag);
-        t.imag = (cos(theta) * oddSlice[k].imag) + (sin(theta) * oddSlice[k].real);
+        t.real = (float)(cosf(theta) * oddSlice[k].real);
+        t.real -= (float)(sinf(theta) * oddSlice[k].imag);
 
+        t.imag = (float)(cosf(theta) * oddSlice[k].imag);
+        t.imag += (float)(sinf(theta) * oddSlice[k].real);
+        
         //x[k] = even[k] + t
         windowedDataI[k].real = evenSlice[k].real + t.real;
         windowedDataI[k].imag = evenSlice[k].imag + t.imag;
@@ -250,7 +247,7 @@ __device__ void FFTkernelRecursiveCVersion(Comp* windowedDataI, int inputSize)
 //<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<
 
 //todo this needs to receive pointer to return memory
-__global__ void FFTkernel(double* filterVec, int* frameOffsetsVec, double* inputArrayVec, Comp* windowedData)
+__global__ void FFTkernel(float* filterVec, int* frameOffsetsVec, float* inputArrayVec, Comp* windowedData)
 {
     int i = threadIdx.x;
 
@@ -266,10 +263,10 @@ __global__ void FFTkernel(double* filterVec, int* frameOffsetsVec, double* input
     FFTkernelRecursiveCVersion(windowedDataI, k_fftInputLen);
 
 # if __CUDA_ARCH__>=200
-//    for (int i = 0; i < k_fftInputLen / 2; i++)
-//    {
-//        printf("%f \n", windowedDataI[i].real);
-//    }
+    for (int i = 0; i < k_fftInputLen / 2; i++)
+    {
+        printf("%f \n", windowedDataI[i].imag);
+    }
     printf("End of FFT calc\n");
 #endif
 
@@ -286,10 +283,10 @@ int main()
     std::cout << "Start of program\n";
 
     //Read CSV file and put elements in inputArray vector
-    ContiguousArray<double> inputArray = readCSV();
+    ContiguousArray<float> inputArray = readCSV();
 
     //generate blackman-harris filter from 0 to k_fftInputLen-1 to window the input data
-    ContiguousArray<double> filter = generateFilter();
+    ContiguousArray<float> filter = generateFilter();
 
     //generate frameOffsets
     ContiguousArray<int> frameOffsets = generateFrameOffsets();//list of frame offsets used by workers
@@ -314,12 +311,12 @@ int main()
     return 0;
 }
 
-cudaError_t FFTWithCuda(ContiguousArray<double> filter, ContiguousArray<int> frameOffsets, ContiguousArray<double> inputArray)
+cudaError_t FFTWithCuda(ContiguousArray<float> filter, ContiguousArray<int> frameOffsets, ContiguousArray<float> inputArray)
 {
     cudaError_t cudaStatus;
-    double* dev_filter = 0;
+    float* dev_filter = 0;
     int* dev_frameOffsets = 0;
-    double* dev_inputArray = 0;
+    float* dev_inputArray = 0;
     Comp* dev_windowedData = 0;
 
     //todo debug, only run one thread until that case works
@@ -329,6 +326,16 @@ cudaError_t FFTWithCuda(ContiguousArray<double> filter, ContiguousArray<int> fra
     cudaStatus = cudaSetDevice(0);
     if (cudaStatus != cudaSuccess) {
         fprintf(stderr, "cudaSetDevice failed!  Do you have a CUDA-capable GPU installed?");
+        goto Error;
+    }
+    cudaStatus = cudaDeviceSynchronize();
+    if (cudaStatus != cudaSuccess) {
+        fprintf(stderr, "cudaDeviceSynchronize failed!  Do you have a CUDA-capable GPU installed?");
+        goto Error;
+    }
+    cudaStatus = cudaThreadSynchronize();
+    if (cudaStatus != cudaSuccess) {
+        fprintf(stderr, "cudaThreadSynchronize failed!  Do you have a CUDA-capable GPU installed?");
         goto Error;
     }
 
@@ -398,9 +405,9 @@ cudaError_t FFTWithCuda(ContiguousArray<double> filter, ContiguousArray<int> fra
     }
 
     // Copy output vector from GPU buffer to host memory.
-    ContiguousArray<double> outputData;
+    ContiguousArray<float> outputData;
     outputData.numElements = k_fftInputLen * threadCount;
-    outputData.ptr = new double[outputData.numElements];
+    outputData.ptr = new float[outputData.numElements];
 
     //TODO this memcpy fails
     //cudaStatus = cudaMemcpy(outputData.ptr, dev_windowedData, outputData.getSize(), cudaMemcpyDeviceToHost);
