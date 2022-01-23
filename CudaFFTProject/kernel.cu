@@ -45,7 +45,7 @@ public:
 
 typedef struct Comp
 {
-    float real;
+    float real; //real component during FFT calculation, and contains FFT magnitude after FFT calculation
     float imag;
 };
 
@@ -59,11 +59,6 @@ cudaError_t FFTWithCuda(ContiguousArray<float> filter, ContiguousArray<int> fram
 
 //Global variables
 int inputArraySize = 0;
-
-//Global FFT variables
-//const float PI = (float)3.141592653589793238460;
-//typedef std::complex<float> Complex;
-//typedef std::valarray<Complex> CArray;
 
 //user set parameters
 const int k_fftInputLen = 512; //length of FFT input array(data points per FFT frame)
@@ -180,10 +175,7 @@ __device__ void kernelWindowData(int frameOffset, float* filterVec, float* input
         windowedDataI[n].imag = 0.0;
     }
 }
-//>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
-//>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
-//>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
-//>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
+
 __device__ void FFTkernelRecursiveCVersion(Comp* windowedDataI, int inputSize)
 {
     if (inputSize <= 1)
@@ -214,8 +206,6 @@ __device__ void FFTkernelRecursiveCVersion(Comp* windowedDataI, int inputSize)
     FFTkernelRecursiveCVersion(evenSlice, size);
     FFTkernelRecursiveCVersion(oddSlice, size);
     
-
-    
     for (size_t k = 0; k < size / 2; ++k)
     {
         
@@ -240,13 +230,8 @@ __device__ void FFTkernelRecursiveCVersion(Comp* windowedDataI, int inputSize)
     free(evenSlice);
     free(oddSlice);
 }
-  
-//<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<
-//<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<
-//<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<
-//<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<
 
-//todo this needs to receive pointer to return memory
+//TODO NEXT TIME: put windowed data in a new array, frather than the windowed data?  Is it clearing the input array?  Investigate
 __global__ void FFTkernel(float* filterVec, int* frameOffsetsVec, float* inputArrayVec, Comp* windowedData)
 {
     int i = threadIdx.x;
@@ -254,18 +239,32 @@ __global__ void FFTkernel(float* filterVec, int* frameOffsetsVec, float* inputAr
     int windowedDataOffset = i * k_fftInputLen;
     Comp* windowedDataI = windowedData + windowedDataOffset; 
 
+    //Apply windowing function to selected data
     kernelWindowData(i, filterVec, inputArrayVec, windowedDataI);
 
 # if __CUDA_ARCH__>=200
     printf("start of FFT calc\n");
 #endif
 
+    //Perform FFT on windowed data, with resulting FFT written to windowedDataI
     FFTkernelRecursiveCVersion(windowedDataI, k_fftInputLen);
 
-# if __CUDA_ARCH__>=200
+    //Calculate the magnitude of the real portion (up to Nyquist frequency) of the FFT, store in real component
     for (int i = 0; i < k_fftInputLen / 2; i++)
     {
-        printf("%f \n", windowedDataI[i].imag);
+        windowedDataI[i].real = windowedDataI[i].real * windowedDataI[i].real;
+        windowedDataI[i].real += windowedDataI[i].imag * windowedDataI[i].imag;
+        windowedDataI[i].real = sqrtf(windowedDataI[i].real);
+        windowedDataI[i].imag = 0.0f; //clear imaginary component so it is clear to the user that this value is only used during calculation
+    }
+
+    //todo clear imaginary (past nyquist frequency) portion of the fft
+    //memset(&windowedDataI[k_fftInputLen / 2], 0, ((k_fftInputLen / 2)-1)*sizeof(Comp));
+
+# if __CUDA_ARCH__>=200
+    for (int i = 0; i < k_fftInputLen; i++)
+    {
+        printf("%f \n", windowedDataI[i].real);
     }
     printf("End of FFT calc\n");
 #endif
@@ -286,7 +285,7 @@ int main()
     ContiguousArray<float> inputArray = readCSV();
 
     //generate blackman-harris filter from 0 to k_fftInputLen-1 to window the input data
-    ContiguousArray<float> filter = generateFilter();
+    ContiguousArray<float> filter = generateFilter(); //todo rename this to window.  Filter is more confusing since this is a window function
 
     //generate frameOffsets
     ContiguousArray<int> frameOffsets = generateFrameOffsets();//list of frame offsets used by workers
