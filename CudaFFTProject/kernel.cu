@@ -53,8 +53,6 @@ typedef struct Comp
 ContiguousArray<float> readCSV();
 ContiguousArray<int> generateFrameOffsets();
 ContiguousArray<float> generateFilter();
-std::vector<float> windowData(int frameOffset, std::vector<float> filter);
-void fft(CArray& x);
 cudaError_t FFTWithCuda(ContiguousArray<float> filter, ContiguousArray<int> frameOffsets, ContiguousArray <float> inputArray);
 
 //Global variables
@@ -374,7 +372,7 @@ cudaError_t FFTWithCuda(ContiguousArray<float> filter, ContiguousArray<int> fram
         goto Error;
     }
 
-    cudaStatus = cudaMemcpy(dev_inputArray, inputArray.ptr, inputArray.getSize(), cudaMemcpyHostToDevice);//todo replace global
+    cudaStatus = cudaMemcpy(dev_inputArray, inputArray.ptr, inputArray.getSize(), cudaMemcpyHostToDevice);
     if (cudaStatus != cudaSuccess) {
         fprintf(stderr, "cudaMemcpy failed!");
         goto Error;
@@ -404,8 +402,9 @@ cudaError_t FFTWithCuda(ContiguousArray<float> filter, ContiguousArray<int> fram
     outputData.numElements = k_fftInputLen * sizeof(Comp);// * threadCount;
     outputData.ptr = new Comp[outputData.numElements];
 
-    //TODO this memcpy fails
-    cudaStatus = cudaMemcpy(outputData.ptr, dev_windowedData, outputData.getSize(), cudaMemcpyDeviceToHost);
+    //Todo for now use the dev_windowedData size as the output size.  Later on it'll be just the single thread count
+    unsigned int outputDataSize = (k_fftInputLen * threadCount * sizeof(Comp));//outputData.getSize();
+    cudaStatus = cudaMemcpy(outputData.ptr, dev_windowedData, outputDataSize, cudaMemcpyDeviceToHost);
     if (cudaStatus != cudaSuccess) {
         fprintf(stderr, "cudaMemcpy failed!");
         goto Error;
