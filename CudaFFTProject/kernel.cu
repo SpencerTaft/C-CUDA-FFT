@@ -264,14 +264,10 @@ __global__ void FFTkernel(float* filterVec, int* frameOffsetsVec, float* inputAr
 # if __CUDA_ARCH__>=200
     for (int i = 0; i < k_fftInputLen; i++)
     {
-        printf("%f \n", windowedDataI[i].real);
+        printf("%f \n", windowedDataI[i].imag);
     }
     printf("End of FFT calc\n");
 #endif
-
-    # if __CUDA_ARCH__>=200
-    //printf("%d \n", frameOffsetsVec[i]);
-    #endif
 }
 
  /**********************************************************
@@ -404,16 +400,16 @@ cudaError_t FFTWithCuda(ContiguousArray<float> filter, ContiguousArray<int> fram
     }
 
     // Copy output vector from GPU buffer to host memory.
-    ContiguousArray<float> outputData;
-    outputData.numElements = k_fftInputLen * threadCount;
-    outputData.ptr = new float[outputData.numElements];
+    ContiguousArray<Comp> outputData;
+    outputData.numElements = k_fftInputLen * sizeof(Comp);// * threadCount;
+    outputData.ptr = new Comp[outputData.numElements];
 
     //TODO this memcpy fails
-    //cudaStatus = cudaMemcpy(outputData.ptr, dev_windowedData, outputData.getSize(), cudaMemcpyDeviceToHost);
-    //if (cudaStatus != cudaSuccess) {
-    //    fprintf(stderr, "cudaMemcpy failed!");
-    //    goto Error;
-    //}
+    cudaStatus = cudaMemcpy(outputData.ptr, dev_windowedData, outputData.getSize(), cudaMemcpyDeviceToHost);
+    if (cudaStatus != cudaSuccess) {
+        fprintf(stderr, "cudaMemcpy failed!");
+        goto Error;
+    }
 
 Error:
     //Free input data
