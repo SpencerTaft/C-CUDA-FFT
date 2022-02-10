@@ -308,9 +308,11 @@ cudaError_t FFTWithCuda(ContiguousArray<float> filter, ContiguousArray<int> fram
     int* dev_frameOffsets = 0;
     float* dev_inputArray = 0;
     Comp* dev_windowedData = 0;
+    const char delimeter = ',';
 
     //todo debug, only run one thread until that case works
-    const int const threadCount = 1;///////////////frameOffsets.numElements;
+    const int threadCount = 1;//frameOffsets.numElements;
+    ContiguousArray<Comp>* outputData = new ContiguousArray<Comp>[threadCount];
 
     // Choose which GPU to run on, change this on a multi-GPU system
     cudaStatus = cudaSetDevice(0);
@@ -394,25 +396,34 @@ cudaError_t FFTWithCuda(ContiguousArray<float> filter, ContiguousArray<int> fram
         goto Error;
     }
 
-    // Copy output vector from GPU buffer to host memory.
-    ContiguousArray<Comp> outputData;
-    outputData.numElements = k_fftInputLen * sizeof(Comp);// * threadCount;
-    outputData.ptr = new Comp[outputData.numElements];
-
-    //Todo for now use the dev_windowedData size as the output size.  Later on it'll be just the single thread count
-    unsigned int outputDataSize = (k_fftInputLen * threadCount * sizeof(Comp));//outputData.getSize();
-    cudaStatus = cudaMemcpy(outputData.ptr, dev_windowedData, outputDataSize, cudaMemcpyDeviceToHost);
-    if (cudaStatus != cudaSuccess) {
-        fprintf(stderr, "cudaMemcpy failed!");
-        goto Error;
-    }
-
-    outputFile.open("output.csv");
-    for (int i = 0; i < k_fftInputLen; i++)
+    // Copy output vector from GPU buffer to host memory (all threads).
+    for (int tIndex = 0; tIndex < threadCount; tIndex++)
     {
-        outputFile << outputData.ptr[i].real;
-        outputFile << ",\n";
+        outputData[tIndex].numElements = k_fftInputLen * sizeof(Comp);// * threadCount;
+        outputData[tIndex].ptr = new Comp[outputData[tIndex].numElements];
+
+        //Todo for now use the dev_windowedData size as the output size.  Later on it'll be just the single thread count
+        unsigned int outputDataSize = (k_fftInputLen * threadCount * sizeof(Comp));//outputData.getSize();
+        cudaStatus = cudaMemcpy(outputData[tIndex].ptr, dev_windowedData, outputDataSize, cudaMemcpyDeviceToHost);
+        if (cudaStatus != cudaSuccess) {
+            fprintf(stderr, "cudaMemcpy failed!");
+            goto Error;
+        }
     }
+
+    //Write data to output CSV file
+    outputFile.open("output.csv");
+
+    for (int dataIndex = 0; dataIndex < k_fftInputLen; dataIndex++)
+    {
+        for (int threadIndex = 0; threadIndex < threadCount; threadIndex++)
+        {
+            outputFile << outputData[threadIndex].ptr[dataIndex].real;
+            outputFile << delimeter;
+        }
+        outputFile << "\n";
+    }
+
     outputFile.close();
 
 Error:
