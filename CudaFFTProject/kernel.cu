@@ -260,10 +260,6 @@ __global__ void FFTkernel(float* filterVec, int* frameOffsetsVec, float* inputAr
     //memset(&windowedDataI[k_fftInputLen / 2], 0, ((k_fftInputLen / 2)-1)*sizeof(Comp));
 
 # if __CUDA_ARCH__>=200
-    for (int i = 0; i < k_fftInputLen; i++)
-    {
-        printf("%f \n", windowedDataI[i].imag);
-    }
     printf("End of FFT calc\n");
 #endif
 }
@@ -307,6 +303,7 @@ int main()
 cudaError_t FFTWithCuda(ContiguousArray<float> filter, ContiguousArray<int> frameOffsets, ContiguousArray<float> inputArray)
 {
     cudaError_t cudaStatus;
+    std::ofstream outputFile;
     float* dev_filter = 0;
     int* dev_frameOffsets = 0;
     float* dev_inputArray = 0;
@@ -410,6 +407,14 @@ cudaError_t FFTWithCuda(ContiguousArray<float> filter, ContiguousArray<int> fram
         goto Error;
     }
 
+    outputFile.open("output.csv");
+    for (int i = 0; i < k_fftInputLen; i++)
+    {
+        outputFile << outputData.ptr[i].real;
+        outputFile << ",\n";
+    }
+    outputFile.close();
+
 Error:
     //Free input data
     cudaFree(dev_filter);
@@ -421,3 +426,4 @@ Error:
 
     return cudaStatus;
 }
+
