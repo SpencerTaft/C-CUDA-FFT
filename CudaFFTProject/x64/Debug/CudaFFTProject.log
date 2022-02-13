@@ -14,5 +14,6 @@ c:\dev\c-cuda-fft\cudafftproject\kernel.cu(50): warning : declaration requires a
   
   kernel.cu
 c:\dev\c-cuda-fft\cudafftproject\kernel.cu(133): warning C4244: '=': conversion from 'double' to 'float', possible loss of data
-c:\dev\c-cuda-fft\cudafftproject\kernel.cu(330): warning C4996: 'cudaThreadSynchronize': was declared deprecated
+c:\dev\c-cuda-fft\cudafftproject\kernel.cu(334): warning C4996: 'cudaThreadSynchronize': was declared deprecated
+     Creating library C:\Dev\C-CUDA-FFT\x64\Debug\CudaFFTProject.lib and object C:\Dev\C-CUDA-FFT\x64\Debug\CudaFFTProject.exp
   CudaFFTProject.vcxproj -> C:\Dev\C-CUDA-FFT\x64\Debug\CudaFFTProject.exe

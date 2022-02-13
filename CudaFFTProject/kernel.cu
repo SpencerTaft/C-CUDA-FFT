@@ -270,7 +270,13 @@ __global__ void FFTkernel(float* filterVec, int* frameOffsetsVec, float* inputAr
 int main()
 {
     std::cout << "Start of program\n";
-
+    //////>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
+    //for (int i = 0; i < 1000; i++)
+    //{
+    //    const float inc = 15/57.3f; //15 degrees converted to radians
+    //    printf("%f\n", sinf((float)inc*i));
+    //}
+    // //<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<
     //Read CSV file and put elements in inputArray vector
     ContiguousArray<float> inputArray = readCSV();
 
@@ -311,7 +317,7 @@ cudaError_t FFTWithCuda(ContiguousArray<float> filter, ContiguousArray<int> fram
     const char delimeter = ',';
 
     //todo debug, only run one thread until that case works
-    const int threadCount = 1;//frameOffsets.numElements;
+    const int threadCount = frameOffsets.numElements;
     ContiguousArray<Comp>* outputData = new ContiguousArray<Comp>[threadCount];
 
     // Choose which GPU to run on, change this on a multi-GPU system
@@ -399,7 +405,7 @@ cudaError_t FFTWithCuda(ContiguousArray<float> filter, ContiguousArray<int> fram
     // Copy output vector from GPU buffer to host memory (all threads).
     for (int tIndex = 0; tIndex < threadCount; tIndex++)
     {
-        outputData[tIndex].numElements = k_fftInputLen * sizeof(Comp);// * threadCount;
+        outputData[tIndex].numElements = k_fftInputLen * sizeof(Comp) * threadCount;
         outputData[tIndex].ptr = new Comp[outputData[tIndex].numElements];
 
         //Todo for now use the dev_windowedData size as the output size.  Later on it'll be just the single thread count
