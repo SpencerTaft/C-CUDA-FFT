@@ -149,24 +149,28 @@ ContiguousArray<float> generateFilter()
   * Functions run in parallel
   **********************************************************/
 
+//std::vector<float> windowData(int frameOffset, std::vector<float> filter, std::vector<float> inputArray)
+//{
+//    std::vector<float>windowedVector;
+//    float windowedData;
+//
+//    for (int n = 0; n < k_fftInputLen; n++)
+//    {
+//        windowedData = filter[n] * inputArray[n + frameOffset];
+//        windowedVector.push_back(windowedData);
+//    }
+//
+//    return windowedVector;
+//}
+
 /*  Apply blackman - harris filter to input data frame.
  *  Return the result as a vector.                      */
-std::vector<float> windowData(int frameOffset, std::vector<float> filter, std::vector<float> inputArray)
-{
-    std::vector<float>windowedVector;
-    float windowedData;
-
-    for (int n = 0; n < k_fftInputLen; n++)
-    {
-        windowedData = filter[n] * inputArray[n + frameOffset];
-        windowedVector.push_back(windowedData);
-    }
-
-    return windowedVector;
-}
-
 __device__ void kernelWindowData(int frameOffset, float* filterVec, float* inputArrayVec, Comp* windowedDataI)
 {
+# if __CUDA_ARCH__>=200
+    //printf("%d\n", frameOffset);
+#endif
+
     for (int n = 0; n < k_fftInputLen; n++)
     {
         windowedDataI[n].real = filterVec[n] * inputArrayVec[n + frameOffset];
@@ -234,11 +238,20 @@ __global__ void FFTkernel(float* filterVec, int* frameOffsetsVec, float* inputAr
 {
     int i = threadIdx.x;
 
+    //windowedData is a large array containing the memory for all fft's output data.  Each thread only writes to k_fftInputLen samples
+    //This sets the pointer to the right output memory.
     int windowedDataOffset = i * k_fftInputLen;
     Comp* windowedDataI = windowedData + windowedDataOffset; 
 
+    //Extract frame offset from frameOffsetsVec for current thread
+    int frameOffset = frameOffsetsVec[i];
+
+# if __CUDA_ARCH__>=200
+    printf("%d\n", frameOffset);
+#endif
+
     //Apply windowing function to selected data
-    kernelWindowData(i, filterVec, inputArrayVec, windowedDataI);
+    kernelWindowData(frameOffset, filterVec, inputArrayVec, windowedDataI);
 
 # if __CUDA_ARCH__>=200
     printf("start of FFT calc\n");
@@ -271,12 +284,15 @@ int main()
 {
     std::cout << "Start of program\n";
     //////>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
-    //for (int i = 0; i < 1000; i++)
-    //{
-    //    const float inc = 15/57.3f; //15 degrees converted to radians
-    //    printf("%f\n", sinf((float)inc*i));
-    //}
+    /*
+    for (int i = 0; i < 1000; i++)
+    {
+        const float inc = 10/57.3f; //15 degrees converted to radians
+        printf("%f\n", sinf((float)inc*i));
+    }*/
     // //<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<
+    // 
+    
     //Read CSV file and put elements in inputArray vector
     ContiguousArray<float> inputArray = readCSV();
 

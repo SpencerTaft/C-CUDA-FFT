@@ -3,17 +3,16 @@
   C:\Dev\C-CUDA-FFT\CudaFFTProject>"C:\Program Files\NVIDIA GPU Computing Toolkit\CUDA\v11.4\bin\nvcc.exe" -gencode=arch=compute_52,code=\"sm_52,compute_52\" --use-local-env -ccbin "C:\Program Files (x86)\Microsoft Visual Studio\2019\Community\VC\Tools\MSVC\14.29.30133\bin\HostX86\x64" -x cu   -I"C:\Program Files\NVIDIA GPU Computing Toolkit\CUDA\v11.4\include" -I"C:\Program Files\NVIDIA GPU Computing Toolkit\CUDA\v11.4\include"  -G   --keep-dir x64\Debug  -maxrregcount=0  --machine 64 --compile -cudart static  -g  -DWIN32 -DWIN64 -D_DEBUG -D_CONSOLE -D_MBCS -Xcompiler "/EHsc /W3 /nologo /Od /Fdx64\Debug\vc142.pdb /FS /Zi /RTC1 /MDd " -o x64\Debug\kernel.cu.obj "C:\Dev\C-CUDA-FFT\CudaFFTProject\kernel.cu" 
 c:\dev\c-cuda-fft\cudafftproject\kernel.cu(50): warning : declaration requires a typedef name
   
-c:\dev\c-cuda-fft\cudafftproject\kernel.cu(185): warning : variable "start" was declared but never referenced
+c:\dev\c-cuda-fft\cudafftproject\kernel.cu(189): warning : variable "start" was declared but never referenced
   
-c:\dev\c-cuda-fft\cudafftproject\kernel.cu(186): warning : variable "polarMagnitude" was declared but never referenced
+c:\dev\c-cuda-fft\cudafftproject\kernel.cu(190): warning : variable "polarMagnitude" was declared but never referenced
   
-c:\dev\c-cuda-fft\cudafftproject\kernel.cu(187): warning : variable "theta" was declared but never referenced
+c:\dev\c-cuda-fft\cudafftproject\kernel.cu(191): warning : variable "theta" was declared but never referenced
   
 CUDACOMPILE : ptxas warning : Stack size for entry function '_Z9FFTkernelPfPiS_P4Comp' cannot be statically determined
 c:\dev\c-cuda-fft\cudafftproject\kernel.cu(50): warning : declaration requires a typedef name
   
   kernel.cu
 c:\dev\c-cuda-fft\cudafftproject\kernel.cu(133): warning C4244: '=': conversion from 'double' to 'float', possible loss of data
-c:\dev\c-cuda-fft\cudafftproject\kernel.cu(334): warning C4996: 'cudaThreadSynchronize': was declared deprecated
-     Creating library C:\Dev\C-CUDA-FFT\x64\Debug\CudaFFTProject.lib and object C:\Dev\C-CUDA-FFT\x64\Debug\CudaFFTProject.exp
+c:\dev\c-cuda-fft\cudafftproject\kernel.cu(350): warning C4996: 'cudaThreadSynchronize': was declared deprecated
   CudaFFTProject.vcxproj -> C:\Dev\C-CUDA-FFT\x64\Debug\CudaFFTProject.exe
