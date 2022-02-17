@@ -60,7 +60,7 @@ int inputArraySize = 0;
 
 //user set parameters
 const int k_fftInputLen = 512; //length of FFT input array(data points per FFT frame)
-const int k_fftFrameOffset = 10; //offset between start of FFT frames(eg x[n]=x[n-1]+k_fftFrameOffset where x[n] is the first value used as input to the fft frame)
+const int k_fftFrameOffset = 100; //offset between start of FFT frames(eg x[n]=x[n-1]+k_fftFrameOffset where x[n] is the first value used as input to the fft frame)
 
 /**********************************************************
  * Functions run on single thread
@@ -149,35 +149,6 @@ ContiguousArray<float> generateFilter()
   * Functions run in parallel
   **********************************************************/
 
-//std::vector<float> windowData(int frameOffset, std::vector<float> filter, std::vector<float> inputArray)
-//{
-//    std::vector<float>windowedVector;
-//    float windowedData;
-//
-//    for (int n = 0; n < k_fftInputLen; n++)
-//    {
-//        windowedData = filter[n] * inputArray[n + frameOffset];
-//        windowedVector.push_back(windowedData);
-//    }
-//
-//    return windowedVector;
-//}
-
-/*  Apply blackman - harris filter to input data frame.
- *  Return the result as a vector.                      */
-__device__ void kernelWindowData(int frameOffset, float* filterVec, float* inputArrayVec, Comp* windowedDataI)
-{
-# if __CUDA_ARCH__>=200
-    //printf("%d\n", frameOffset);
-#endif
-
-    for (int n = 0; n < k_fftInputLen; n++)
-    {
-        windowedDataI[n].real = filterVec[n] * inputArrayVec[n + frameOffset];
-        windowedDataI[n].imag = 0.0;
-    }
-}
-
 __device__ void FFTkernelRecursiveCVersion(Comp* windowedDataI, int inputSize)
 {
     if (inputSize <= 1)
@@ -233,7 +204,17 @@ __device__ void FFTkernelRecursiveCVersion(Comp* windowedDataI, int inputSize)
     free(oddSlice);
 }
 
-//TODO NEXT TIME: put windowed data in a new array, frather than the windowed data?  Is it clearing the input array?  Investigate
+/*  Apply blackman - harris filter to input data frame.
+ *  Return the result as a vector.                      */
+__device__ void kernelWindowData(int frameOffset, float* filterVec, float* inputArrayVec, Comp* windowedDataI)
+{
+    for (int n = 0; n < k_fftInputLen; n++)
+    {
+        windowedDataI[n].real = filterVec[n] * inputArrayVec[n + frameOffset];
+        windowedDataI[n].imag = 0.0;
+    }
+}
+
 __global__ void FFTkernel(float* filterVec, int* frameOffsetsVec, float* inputArrayVec, Comp* windowedData)
 {
     int i = threadIdx.x;
@@ -241,14 +222,11 @@ __global__ void FFTkernel(float* filterVec, int* frameOffsetsVec, float* inputAr
     //windowedData is a large array containing the memory for all fft's output data.  Each thread only writes to k_fftInputLen samples
     //This sets the pointer to the right output memory.
     int windowedDataOffset = i * k_fftInputLen;
+
     Comp* windowedDataI = windowedData + windowedDataOffset; 
 
     //Extract frame offset from frameOffsetsVec for current thread
     int frameOffset = frameOffsetsVec[i];
-
-# if __CUDA_ARCH__>=200
-    printf("%d\n", frameOffset);
-#endif
 
     //Apply windowing function to selected data
     kernelWindowData(frameOffset, filterVec, inputArrayVec, windowedDataI);
@@ -256,7 +234,7 @@ __global__ void FFTkernel(float* filterVec, int* frameOffsetsVec, float* inputAr
 # if __CUDA_ARCH__>=200
     printf("start of FFT calc\n");
 #endif
-
+    
     //Perform FFT on windowed data, with resulting FFT written to windowedDataI
     FFTkernelRecursiveCVersion(windowedDataI, k_fftInputLen);
 
@@ -266,11 +244,8 @@ __global__ void FFTkernel(float* filterVec, int* frameOffsetsVec, float* inputAr
         windowedDataI[i].real = windowedDataI[i].real * windowedDataI[i].real;
         windowedDataI[i].real += windowedDataI[i].imag * windowedDataI[i].imag;
         windowedDataI[i].real = sqrtf(windowedDataI[i].real);
-        windowedDataI[i].imag = 0.0f; //clear imaginary component so it is clear to the user that this value is only used during calculation
+        windowedDataI[i].imag = 0.0f; //clear imaginary component so it is clear that this value is only used during calculation
     }
-
-    //todo clear imaginary (past nyquist frequency) portion of the fft
-    //memset(&windowedDataI[k_fftInputLen / 2], 0, ((k_fftInputLen / 2)-1)*sizeof(Comp));
 
 # if __CUDA_ARCH__>=200
     printf("End of FFT calc\n");
@@ -332,7 +307,6 @@ cudaError_t FFTWithCuda(ContiguousArray<float> filter, ContiguousArray<int> fram
     Comp* dev_windowedData = 0;
     const char delimeter = ',';
 
-    //todo debug, only run one thread until that case works
     const int threadCount = frameOffsets.numElements;
     ContiguousArray<Comp>* outputData = new ContiguousArray<Comp>[threadCount];
 
@@ -354,7 +328,6 @@ cudaError_t FFTWithCuda(ContiguousArray<float> filter, ContiguousArray<int> fram
     }
 
     //Allocate space on GPU for the filter, frameOffsets, and inputArray.  Only one of each is needed
-
     cudaStatus = cudaMalloc((void**)&dev_filter, filter.getSize());
     if (cudaStatus != cudaSuccess) {
         fprintf(stderr, "cudaMalloc failed!");
@@ -400,7 +373,6 @@ cudaError_t FFTWithCuda(ContiguousArray<float> filter, ContiguousArray<int> fram
     }
 
     // Launch a kernel on the GPU with one thread per frameOffset
-
     FFTkernel << <1, threadCount >> > (dev_filter, dev_frameOffsets, dev_inputArray, dev_windowedData);
 
     // Check for any errors launching the kernel
@@ -421,12 +393,13 @@ cudaError_t FFTWithCuda(ContiguousArray<float> filter, ContiguousArray<int> fram
     // Copy output vector from GPU buffer to host memory (all threads).
     for (int tIndex = 0; tIndex < threadCount; tIndex++)
     {
-        outputData[tIndex].numElements = k_fftInputLen * sizeof(Comp) * threadCount;
+        outputData[tIndex].numElements = k_fftInputLen * sizeof(Comp);
         outputData[tIndex].ptr = new Comp[outputData[tIndex].numElements];
 
-        //Todo for now use the dev_windowedData size as the output size.  Later on it'll be just the single thread count
-        unsigned int outputDataSize = (k_fftInputLen * threadCount * sizeof(Comp));//outputData.getSize();
-        cudaStatus = cudaMemcpy(outputData[tIndex].ptr, dev_windowedData, outputDataSize, cudaMemcpyDeviceToHost);
+        unsigned int outputDataSize = (k_fftInputLen * sizeof(Comp));
+        Comp* dev_windowedDataI = (dev_windowedData + (tIndex * k_fftInputLen));
+
+        cudaStatus = cudaMemcpy(outputData[tIndex].ptr, dev_windowedDataI, outputDataSize, cudaMemcpyDeviceToHost);
         if (cudaStatus != cudaSuccess) {
             fprintf(stderr, "cudaMemcpy failed!");
             goto Error;
@@ -436,7 +409,7 @@ cudaError_t FFTWithCuda(ContiguousArray<float> filter, ContiguousArray<int> fram
     //Write data to output CSV file
     outputFile.open("output.csv");
 
-    for (int dataIndex = 0; dataIndex < k_fftInputLen; dataIndex++)
+    for (int dataIndex = 0; dataIndex < k_fftInputLen/2; dataIndex++)
     {
         for (int threadIndex = 0; threadIndex < threadCount; threadIndex++)
         {
